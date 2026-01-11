@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha] - 2026-01-11
+
 ### Added
-- Registry tools for daemon discovery (coming soon)
+- `daemon_registry_list` - List all known daemons in the registry
+- `daemon_registry_search` - Search daemons by name, owner, tags, or focus area
+- `daemon_registry_announce` - Announce a new daemon to the registry (in-memory, KV persistence coming)
+- `seed-registry.json` with 4 known community daemons
 
 ## [0.1.0-alpha] - 2026-01-11
 

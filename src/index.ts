@@ -1,9 +1,38 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
+import seedRegistry from "../seed-registry.json";
 
 // Daemon.md content - fetched from static site
 const DAEMON_MD_URL = "https://saltedkeys.pages.dev/daemon.md";
+
+// Registry types
+interface DaemonEntry {
+	url: string;
+	owner: string;
+	role?: string;
+	focus?: string[];
+	protocol?: string;
+	mcp_url?: string;
+	api_url?: string;
+	tags?: string[];
+	announced_at?: string;
+	last_verified?: string;
+}
+
+interface Registry {
+	version: number;
+	entries: DaemonEntry[];
+	updated: string;
+}
+
+// In-memory registry (seed + announced daemons)
+// TODO: Replace with Cloudflare KV for persistence
+let registryCache: Registry = {
+	version: seedRegistry.version,
+	entries: [...seedRegistry.entries],
+	updated: seedRegistry.updated,
+};
 
 // Cache for parsed daemon data
 let daemonCache: { sections: Record<string, string>; lastFetch: number } | null = null;
@@ -63,7 +92,7 @@ async function getDaemonSections(): Promise<Record<string, string>> {
 }
 
 // Tool definitions for JSON-RPC response
-const TOOLS = [
+const DAEMON_TOOLS = [
 	{ name: "get_about", description: "Get basic about/bio information", inputSchema: { type: "object", properties: {}, required: [] } },
 	{ name: "get_current_location", description: "Get current location/timezone", inputSchema: { type: "object", properties: {}, required: [] } },
 	{ name: "get_mission", description: "Get mission statement", inputSchema: { type: "object", properties: {}, required: [] } },
@@ -79,6 +108,101 @@ const TOOLS = [
 	{ name: "get_all", description: "Get all daemon information as JSON", inputSchema: { type: "object", properties: {}, required: [] } },
 	{ name: "get_section", description: "Get any section by name (e.g., ABOUT, MISSION, TELOS)", inputSchema: { type: "object", properties: { section: { type: "string", description: "Section name (uppercase, underscores for spaces)" } }, required: ["section"] } },
 ];
+
+// Registry tool definitions
+const REGISTRY_TOOLS = [
+	{
+		name: "daemon_registry_list",
+		description: "List all known daemons in the registry",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "daemon_registry_search",
+		description: "Search daemons by name, owner, tags, or focus area",
+		inputSchema: {
+			type: "object",
+			properties: {
+				query: { type: "string", description: "Search query (matches owner, role, focus, tags)" },
+				tag: { type: "string", description: "Filter by specific tag" }
+			},
+			required: []
+		}
+	},
+	{
+		name: "daemon_registry_announce",
+		description: "Announce a new daemon to the registry",
+		inputSchema: {
+			type: "object",
+			properties: {
+				url: { type: "string", description: "Daemon URL (e.g., https://daemon.example.com/)" },
+				owner: { type: "string", description: "Owner name" },
+				role: { type: "string", description: "Owner's role or title" },
+				focus: { type: "array", items: { type: "string" }, description: "Areas of focus" },
+				protocol: { type: "string", description: "Protocol type: mcp-rpc, json-rpc, or unknown" },
+				mcp_url: { type: "string", description: "MCP API URL if different from daemon URL" },
+				tags: { type: "array", items: { type: "string" }, description: "Searchable tags" }
+			},
+			required: ["url", "owner"]
+		}
+	},
+];
+
+const TOOLS = [...DAEMON_TOOLS, ...REGISTRY_TOOLS];
+
+// Registry functions
+function registryList(): DaemonEntry[] {
+	return registryCache.entries;
+}
+
+function registrySearch(query?: string, tag?: string): DaemonEntry[] {
+	let results = registryCache.entries;
+
+	if (tag) {
+		const normalizedTag = tag.toLowerCase();
+		results = results.filter(entry =>
+			entry.tags?.some(t => t.toLowerCase() === normalizedTag)
+		);
+	}
+
+	if (query) {
+		const q = query.toLowerCase();
+		results = results.filter(entry =>
+			entry.owner.toLowerCase().includes(q) ||
+			entry.role?.toLowerCase().includes(q) ||
+			entry.focus?.some(f => f.toLowerCase().includes(q)) ||
+			entry.tags?.some(t => t.toLowerCase().includes(q)) ||
+			entry.url.toLowerCase().includes(q)
+		);
+	}
+
+	return results;
+}
+
+function registryAnnounce(entry: Omit<DaemonEntry, "announced_at">): { success: boolean; entry: DaemonEntry; message: string } {
+	// Check if already exists
+	const existing = registryCache.entries.find(e => e.url === entry.url);
+	if (existing) {
+		return { success: false, entry: existing, message: "Daemon already registered" };
+	}
+
+	// Validate URL format
+	try {
+		new URL(entry.url);
+	} catch {
+		return { success: false, entry: entry as DaemonEntry, message: "Invalid URL format" };
+	}
+
+	const newEntry: DaemonEntry = {
+		...entry,
+		announced_at: new Date().toISOString(),
+	};
+
+	registryCache.entries.push(newEntry);
+	registryCache.updated = new Date().toISOString();
+
+	// TODO: Persist to Cloudflare KV
+	return { success: true, entry: newEntry, message: "Daemon announced successfully" };
+}
 
 // Section name mapping (tool name -> daemon.md section)
 const SECTION_MAP: Record<string, string> = {
@@ -163,7 +287,7 @@ async function handleJsonRpc(body: any): Promise<Response> {
 				);
 			}
 
-			// Standard tools - Look up section
+			// Standard daemon tools - Look up section
 			const sectionKey = SECTION_MAP[toolName];
 			if (sectionKey) {
 				const content = sections[sectionKey] || `No ${sectionKey.toLowerCase()} found`;
@@ -171,6 +295,88 @@ async function handleJsonRpc(body: any): Promise<Response> {
 					JSON.stringify({
 						jsonrpc: "2.0",
 						result: { content: [{ type: "text", text: content }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			// Registry tools
+			if (toolName === "daemon_registry_list") {
+				const entries = registryList();
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify({
+									count: entries.length,
+									daemons: entries,
+									updated: registryCache.updated
+								}, null, 2)
+							}]
+						},
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "daemon_registry_search") {
+				const query = params?.arguments?.query;
+				const tag = params?.arguments?.tag;
+				const entries = registrySearch(query, tag);
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify({
+									query: query || null,
+									tag: tag || null,
+									count: entries.length,
+									daemons: entries
+								}, null, 2)
+							}]
+						},
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "daemon_registry_announce") {
+				const args = params?.arguments || {};
+				if (!args.url || !args.owner) {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							error: { code: -32602, message: "Missing required fields: url and owner" },
+							id,
+						}),
+						{ headers }
+					);
+				}
+				const result = registryAnnounce({
+					url: args.url,
+					owner: args.owner,
+					role: args.role,
+					focus: args.focus,
+					protocol: args.protocol || "unknown",
+					mcp_url: args.mcp_url,
+					tags: args.tags || [],
+				});
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify(result, null, 2)
+							}]
+						},
 						id,
 					}),
 					{ headers }
@@ -217,8 +423,8 @@ export class DaemonMCP extends McpAgent {
 	});
 
 	async init() {
-		// Register all tools for SSE-based MCP clients
-		for (const tool of TOOLS) {
+		// Register daemon tools for SSE-based MCP clients
+		for (const tool of DAEMON_TOOLS) {
 			if (tool.name === "get_section") {
 				this.server.tool(
 					tool.name,
@@ -247,6 +453,66 @@ export class DaemonMCP extends McpAgent {
 				});
 			}
 		}
+
+		// Register registry tools
+		this.server.tool(
+			"daemon_registry_list",
+			"List all known daemons in the registry",
+			{},
+			async () => {
+				const entries = registryList();
+				return {
+					content: [{
+						type: "text",
+						text: JSON.stringify({ count: entries.length, daemons: entries, updated: registryCache.updated }, null, 2)
+					}]
+				};
+			}
+		);
+
+		this.server.tool(
+			"daemon_registry_search",
+			"Search daemons by name, owner, tags, or focus area",
+			{
+				query: z.string().optional().describe("Search query (matches owner, role, focus, tags)"),
+				tag: z.string().optional().describe("Filter by specific tag"),
+			},
+			async ({ query, tag }) => {
+				const entries = registrySearch(query, tag);
+				return {
+					content: [{
+						type: "text",
+						text: JSON.stringify({ query: query || null, tag: tag || null, count: entries.length, daemons: entries }, null, 2)
+					}]
+				};
+			}
+		);
+
+		this.server.tool(
+			"daemon_registry_announce",
+			"Announce a new daemon to the registry",
+			{
+				url: z.string().describe("Daemon URL (e.g., https://daemon.example.com/)"),
+				owner: z.string().describe("Owner name"),
+				role: z.string().optional().describe("Owner's role or title"),
+				focus: z.array(z.string()).optional().describe("Areas of focus"),
+				protocol: z.string().optional().describe("Protocol type: mcp-rpc, json-rpc, or unknown"),
+				mcp_url: z.string().optional().describe("MCP API URL if different from daemon URL"),
+				tags: z.array(z.string()).optional().describe("Searchable tags"),
+			},
+			async ({ url, owner, role, focus, protocol, mcp_url, tags }) => {
+				const result = registryAnnounce({
+					url,
+					owner,
+					role,
+					focus,
+					protocol: protocol || "unknown",
+					mcp_url,
+					tags: tags || [],
+				});
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+			}
+		);
 	}
 }
 

@@ -1,0 +1,41 @@
+{
+	"version": 1,
+	"entries": [
+		{
+			"url": "https://daemon.danielmiessler.com/",
+			"owner": "Daniel Miessler",
+			"role": "Cyber/AI thought leader",
+			"focus": ["Human 3.0", "Frame", "Threshold"],
+			"protocol": "mcp-rpc",
+			"mcp_url": "https://mcp.daemon.danielmiessler.com/",
+			"tags": ["security", "ai", "philosophy", "upstream"]
+		},
+		{
+			"url": "https://daemon.saltedkeys.io/",
+			"owner": "Swift",
+			"role": "Security to AI pivot",
+			"focus": ["Data sovereignty", "Privacy-first tools"],
+			"protocol": "mcp-rpc",
+			"mcp_url": "https://mcp.daemon.saltedkeys.io/",
+			"tags": ["security", "ai", "privacy", "self-hosted"]
+		},
+		{
+			"url": "https://daemon.nocooldowns.io/",
+			"owner": "Scott Behrens",
+			"role": "Principal Security Engineer @ Netflix",
+			"focus": ["AI-native security strategy"],
+			"protocol": "json-rpc",
+			"tags": ["security", "ai", "enterprise"]
+		},
+		{
+			"url": "https://wallykroeker.com/daemon",
+			"owner": "Wally Kroeker",
+			"role": "Self-hosted enthusiast",
+			"focus": ["Personal lab hosting"],
+			"protocol": "unknown",
+			"api_url": "https://wallykroeker.com/api/daemon",
+			"tags": ["self-hosted", "homelab"]
+		}
+	],
+	"updated": "2026-01-11T00:00:00Z"
+}
