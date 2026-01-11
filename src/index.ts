@@ -17,7 +17,15 @@ interface DaemonEntry {
 	api_url?: string;
 	tags?: string[];
 	announced_at?: string;
-	last_verified?: string;
+
+	// Verification (checked on announce)
+	verified: boolean;
+	verified_at?: string;
+
+	// Health tracking (updated by cron)
+	last_checked?: string;
+	health_status?: "healthy" | "degraded" | "unreachable";
+	consecutive_failures?: number;
 }
 
 interface Registry {
@@ -34,8 +42,8 @@ let registryCache: Registry | null = null;
 
 // Load registry from seed + KV
 async function loadRegistry(kv?: KVNamespace): Promise<Registry> {
-	// Start with seed entries
-	const entries: DaemonEntry[] = [...seedRegistry.entries];
+	// Start with seed entries (cast to handle JSON import types)
+	const entries: DaemonEntry[] = (seedRegistry.entries as unknown as DaemonEntry[]).map(e => ({ ...e }));
 
 	// Load announced daemons from KV if available
 	if (kv) {
@@ -59,6 +67,57 @@ async function loadRegistry(kv?: KVNamespace): Promise<Registry> {
 // Save announced daemons to KV
 async function saveAnnouncedToKV(kv: KVNamespace, announced: DaemonEntry[]): Promise<void> {
 	await kv.put(KV_ANNOUNCED_KEY, JSON.stringify(announced));
+}
+
+// Verify a daemon by fetching its daemon.md
+async function verifyDaemon(daemonUrl: string): Promise<{ verified: boolean; error?: string }> {
+	// Normalize URL and construct daemon.md path
+	const baseUrl = daemonUrl.endsWith("/") ? daemonUrl : `${daemonUrl}/`;
+	const daemonMdUrl = `${baseUrl}daemon.md`;
+
+	try {
+		const response = await fetch(daemonMdUrl, {
+			headers: { "User-Agent": "DaemonRegistry/1.0" },
+			signal: AbortSignal.timeout(10000), // 10 second timeout
+		});
+
+		if (!response.ok) {
+			return { verified: false, error: `HTTP ${response.status}` };
+		}
+
+		const content = await response.text();
+
+		// Basic validation: should have at least one section header
+		if (!content.includes("[") || content.length < 50) {
+			return { verified: false, error: "Invalid daemon.md format" };
+		}
+
+		return { verified: true };
+	} catch (e) {
+		const error = e instanceof Error ? e.message : "Unknown error";
+		return { verified: false, error };
+	}
+}
+
+// Health check a daemon (called by cron)
+async function healthCheckDaemon(entry: DaemonEntry): Promise<Partial<DaemonEntry>> {
+	const { verified, error } = await verifyDaemon(entry.url);
+	const now = new Date().toISOString();
+
+	if (verified) {
+		return {
+			last_checked: now,
+			health_status: "healthy",
+			consecutive_failures: 0,
+		};
+	} else {
+		const failures = (entry.consecutive_failures || 0) + 1;
+		return {
+			last_checked: now,
+			health_status: failures >= 3 ? "unreachable" : "degraded",
+			consecutive_failures: failures,
+		};
+	}
 }
 
 // Cache for parsed daemon data
@@ -209,8 +268,8 @@ async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?:
 
 async function registryAnnounce(
 	kv: KVNamespace | undefined,
-	entry: Omit<DaemonEntry, "announced_at">
-): Promise<{ success: boolean; entry: DaemonEntry; message: string }> {
+	entry: Omit<DaemonEntry, "announced_at" | "verified" | "verified_at">
+): Promise<{ success: boolean; entry: DaemonEntry; message: string; verification_error?: string }> {
 	const registry = await loadRegistry(kv);
 
 	// Check if already exists
@@ -226,9 +285,18 @@ async function registryAnnounce(
 		return { success: false, entry: entry as DaemonEntry, message: "Invalid URL format" };
 	}
 
+	// Verify the daemon by fetching daemon.md
+	const verification = await verifyDaemon(entry.url);
+	const now = new Date().toISOString();
+
 	const newEntry: DaemonEntry = {
 		...entry,
-		announced_at: new Date().toISOString(),
+		announced_at: now,
+		verified: verification.verified,
+		verified_at: now,
+		last_checked: now,
+		health_status: verification.verified ? "healthy" : "degraded",
+		consecutive_failures: verification.verified ? 0 : 1,
 	};
 
 	// Persist to KV if available
@@ -239,7 +307,16 @@ async function registryAnnounce(
 		await saveAnnouncedToKV(kv, announced);
 	}
 
-	return { success: true, entry: newEntry, message: "Daemon announced successfully" };
+	const message = verification.verified
+		? "Daemon announced and verified successfully"
+		: "Daemon announced but verification failed (daemon.md not accessible)";
+
+	return {
+		success: true,
+		entry: newEntry,
+		message,
+		verification_error: verification.error,
+	};
 }
 
 // Section name mapping (tool name -> daemon.md section)
@@ -598,5 +675,43 @@ export default {
 		}
 
 		return new Response("Daemon MCP Server. POST to / for JSON-RPC or connect to /sse for SSE transport.", { status: 200 });
+	},
+
+	// Cron trigger for health checks
+	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		const kv = env.DAEMON_REGISTRY;
+
+		// Load all daemons (seed + announced)
+		const registry = await loadRegistry(kv);
+
+		// Health check each daemon
+		const updates: { url: string; update: Partial<DaemonEntry> }[] = [];
+
+		for (const entry of registry.entries) {
+			try {
+				const healthUpdate = await healthCheckDaemon(entry);
+				updates.push({ url: entry.url, update: healthUpdate });
+			} catch (e) {
+				console.error(`Health check failed for ${entry.url}:`, e);
+			}
+		}
+
+		// Update announced daemons in KV with health data
+		const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json") || [];
+		let updated = false;
+
+		for (const { url, update } of updates) {
+			const idx = announced.findIndex(e => e.url === url);
+			if (idx >= 0) {
+				announced[idx] = { ...announced[idx], ...update };
+				updated = true;
+			}
+		}
+
+		if (updated) {
+			await saveAnnouncedToKV(kv, announced);
+		}
+
+		console.log(`Health check complete: ${updates.length} daemons checked`);
 	},
 };

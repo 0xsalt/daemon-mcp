@@ -28,6 +28,10 @@
 			"id": "YOUR_KV_NAMESPACE_ID"
 		}
 	],
+	// Cron trigger for health checks (every hour at :00)
+	"triggers": {
+		"crons": ["0 * * * *"]
+	},
 	"observability": {
 		"enabled": false
 	}

@@ -8,13 +8,13 @@
 
 ## NOW
 
-- [ ] Deploy registry tools to production
-- [ ] Test KV persistence on production
+- [ ] Deploy verification & health checks to production
+- [ ] Rate limiting for announce endpoint
 
 ## BACKLOG
 
-- [ ] Daemon verification (fetch daemon.md, validate format)
-- [ ] Rate limiting for announce endpoint
+- [ ] Manual health check trigger endpoint
+- [ ] Filter by health_status in search
 
 ## ROADMAP
 
@@ -28,6 +28,9 @@
 
 ## DONE
 
+- [x] Daemon verification on announce [2026-01-11]
+- [x] Health tracking fields (verified, health_status, etc.) [2026-01-11]
+- [x] Cloudflare Cron trigger for hourly health checks [2026-01-11]
 - [x] Cloudflare KV persistence for registry [2026-01-11]
 - [x] `daemon_registry_list` tool [2026-01-11]
 - [x] `daemon_registry_search` tool [2026-01-11]

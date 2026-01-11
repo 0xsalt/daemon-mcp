@@ -8,7 +8,9 @@
 			"focus": ["Human 3.0", "Frame", "Threshold"],
 			"protocol": "mcp-rpc",
 			"mcp_url": "https://mcp.daemon.danielmiessler.com/",
-			"tags": ["security", "ai", "philosophy", "upstream"]
+			"tags": ["security", "ai", "philosophy", "upstream"],
+			"verified": true,
+			"health_status": "healthy"
 		},
 		{
 			"url": "https://daemon.saltedkeys.io/",
@@ -17,7 +19,9 @@
 			"focus": ["Data sovereignty", "Privacy-first tools"],
 			"protocol": "mcp-rpc",
 			"mcp_url": "https://mcp.daemon.saltedkeys.io/",
-			"tags": ["security", "ai", "privacy", "self-hosted"]
+			"tags": ["security", "ai", "privacy", "self-hosted"],
+			"verified": true,
+			"health_status": "healthy"
 		},
 		{
 			"url": "https://daemon.nocooldowns.io/",
@@ -25,7 +29,9 @@
 			"role": "Principal Security Engineer @ Netflix",
 			"focus": ["AI-native security strategy"],
 			"protocol": "json-rpc",
-			"tags": ["security", "ai", "enterprise"]
+			"tags": ["security", "ai", "enterprise"],
+			"verified": true,
+			"health_status": "healthy"
 		},
 		{
 			"url": "https://wallykroeker.com/daemon",
@@ -34,7 +40,9 @@
 			"focus": ["Personal lab hosting"],
 			"protocol": "unknown",
 			"api_url": "https://wallykroeker.com/api/daemon",
-			"tags": ["self-hosted", "homelab"]
+			"tags": ["self-hosted", "homelab"],
+			"verified": false,
+			"health_status": "degraded"
 		}
 	],
 	"updated": "2026-01-11T00:00:00Z"

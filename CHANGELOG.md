@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0-alpha] - 2026-01-11
+
+### Added
+- Daemon verification on announce (fetches daemon.md to confirm existence)
+- Health tracking fields: `verified`, `verified_at`, `last_checked`, `health_status`, `consecutive_failures`
+- Cloudflare Cron trigger for hourly health checks
+- Health status: "healthy", "degraded" (1-2 failures), "unreachable" (3+ failures)
+
+### Changed
+- `daemon_registry_announce` now returns verification status and error details
+- Seed registry entries now include `verified` and `health_status` fields
+
 ## [0.2.0-alpha] - 2026-01-11
 
 ### Added
