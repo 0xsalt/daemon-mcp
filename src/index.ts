@@ -486,7 +486,8 @@ const META_TOOLS = [
 	},
 ];
 
-const TOOLS = [...META_TOOLS, ...DAEMON_TOOLS, ...REGISTRY_TOOLS];
+// Order matters: META first (orientation), then REGISTRY (primary purpose), then DAEMON (personal, secondary)
+const TOOLS = [...META_TOOLS, ...REGISTRY_TOOLS, ...DAEMON_TOOLS];
 
 // Registry functions
 async function registryList(kv?: KVNamespace): Promise<{ entries: DaemonEntry[]; updated: string }> {
@@ -891,19 +892,20 @@ async function getStatus(kv?: KVNamespace): Promise<object> {
 
 function getCapabilities(): object {
 	return {
-		description: "All available tools, organized by category",
+		description: "UL Community Daemon Registry - tools organized by category",
+		primary_purpose: "Discover and query MCP-enabled personal daemons from the Unsupervised Learning community",
 		categories: {
 			meta: {
 				description: "Discoverability and integration tools",
 				tools: META_TOOLS.map(t => ({ name: t.name, description: t.description }))
 			},
-			personal: {
-				description: "Personal information about the daemon owner",
-				tools: DAEMON_TOOLS.map(t => ({ name: t.name, description: t.description }))
-			},
 			registry: {
-				description: "Daemon network discovery and management",
+				description: "UL Community daemon network - browse, search, and announce daemons",
 				tools: REGISTRY_TOOLS.map(t => ({ name: t.name, description: t.description }))
+			},
+			personal: {
+				description: "Personal information about Swift (this server's host)",
+				tools: DAEMON_TOOLS.map(t => ({ name: t.name, description: t.description }))
 			}
 		},
 		total_tools: TOOLS.length
