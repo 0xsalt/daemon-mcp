@@ -28,9 +28,9 @@
 			"id": "YOUR_KV_NAMESPACE_ID"
 		}
 	],
-	// Cron trigger for health checks (every hour at :00)
+	// Cron trigger for health checks (every minute - jitter spreads actual checks across the hour)
 	"triggers": {
-		"crons": ["0 * * * *"]
+		"crons": ["* * * * *"]
 	},
 	"observability": {
 		"enabled": false

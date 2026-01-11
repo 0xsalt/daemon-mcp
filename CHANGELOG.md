@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- AI discoverability tools (8 new meta tools for first-contact experience):
+  - `get_orientation` - START HERE intro explaining what this daemon is
+  - `get_mcp_config` - Integration snippet for Claude Code/Desktop
+  - `get_protocol_info` - Transport details and example requests
+  - `ai_briefing` - AI-specific usage guidance
+  - `get_status` - Version, uptime, and registry stats
+  - `get_capabilities` - Categorized tool listing (Meta, Personal, Registry)
+  - `get_changelog` - Recent changes and version history
+  - `daemon_registry_random` - Discover a random daemon for exploration
+- Rate limiting for announce endpoint (5 announces per hour per IP)
+- Per-daemon jitter for health checks (spreads checks across the hour based on URL hash)
+- Filter by `health_status` in `daemon_registry_search` tool
+- `daemon_registry_health_check` tool for manual health checks
+- `daemon_registry_activity` tool for activity feed (announcements, health changes)
+- `daemon_registry_capabilities` tool for MCP tool auto-discovery
+
+### Changed
+- Cron trigger now runs every minute (jitter logic determines which daemons to check)
+
 ## [0.3.0-alpha] - 2026-01-11
 
 ### Added

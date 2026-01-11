@@ -3,6 +3,11 @@ import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 import seedRegistry from "../seed-registry.json";
 
+// Version info
+const VERSION = "0.3.0-alpha";
+const MCP_URL = "https://mcp.daemon.saltedkeys.io";
+const DAEMON_OWNER = "Swift";
+
 // Daemon.md content - fetched from static site
 const DAEMON_MD_URL = "https://saltedkeys.pages.dev/daemon.md";
 
@@ -34,8 +39,45 @@ interface Registry {
 	updated: string;
 }
 
-// KV key for storing announced daemons
+// Activity feed types
+interface ActivityEvent {
+	type: "daemon_announced" | "health_changed" | "daemon_verified";
+	daemon_url: string;
+	daemon_owner: string;
+	timestamp: string;
+	details?: Record<string, unknown>;
+}
+
+// Activity feed config
+const ACTIVITY_FEED_MAX_EVENTS = 100; // Keep last 100 events
+
+// KV keys
 const KV_ANNOUNCED_KEY = "announced_daemons";
+const KV_RATE_LIMIT_PREFIX = "rate_limit:";
+const KV_ACTIVITY_KEY = "activity_feed";
+
+// Rate limiting config
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const RATE_LIMIT_MAX_ANNOUNCES = 5; // Max 5 announces per hour per IP
+
+// Health check jitter config
+const HEALTH_CHECK_INTERVAL_MINUTES = 60; // Check each daemon every 60 minutes
+
+// Simple hash function for URL-based jitter offset
+function hashCode(str: string): number {
+	let hash = 0;
+	for (let i = 0; i < str.length; i++) {
+		const char = str.charCodeAt(i);
+		hash = ((hash << 5) - hash) + char;
+		hash = hash & hash; // Convert to 32bit integer
+	}
+	return Math.abs(hash);
+}
+
+// Get the minute offset for a daemon based on its URL hash
+function getDaemonCheckMinute(url: string): number {
+	return hashCode(url) % HEALTH_CHECK_INTERVAL_MINUTES;
+}
 
 // In-memory cache (refreshed from KV on each request)
 let registryCache: Registry | null = null;
@@ -64,9 +106,76 @@ async function loadRegistry(kv?: KVNamespace): Promise<Registry> {
 	};
 }
 
+// Activity feed functions
+async function loadActivityFeed(kv: KVNamespace): Promise<ActivityEvent[]> {
+	try {
+		const events = await kv.get<ActivityEvent[]>(KV_ACTIVITY_KEY, "json");
+		return events || [];
+	} catch (e) {
+		console.error("Failed to load activity feed from KV:", e);
+		return [];
+	}
+}
+
+async function addActivityEvent(kv: KVNamespace, event: Omit<ActivityEvent, "timestamp">): Promise<void> {
+	const events = await loadActivityFeed(kv);
+	const newEvent: ActivityEvent = {
+		...event,
+		timestamp: new Date().toISOString(),
+	};
+
+	// Add to front, keep max events
+	events.unshift(newEvent);
+	if (events.length > ACTIVITY_FEED_MAX_EVENTS) {
+		events.length = ACTIVITY_FEED_MAX_EVENTS;
+	}
+
+	await kv.put(KV_ACTIVITY_KEY, JSON.stringify(events));
+}
+
 // Save announced daemons to KV
 async function saveAnnouncedToKV(kv: KVNamespace, announced: DaemonEntry[]): Promise<void> {
 	await kv.put(KV_ANNOUNCED_KEY, JSON.stringify(announced));
+}
+
+// Rate limiting
+interface RateLimitRecord {
+	count: number;
+	windowStart: number;
+}
+
+async function checkRateLimit(kv: KVNamespace, ip: string): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
+	const key = `${KV_RATE_LIMIT_PREFIX}${ip}`;
+	const now = Date.now();
+
+	const record = await kv.get<RateLimitRecord>(key, "json");
+
+	if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+		// New window
+		return { allowed: true, remaining: RATE_LIMIT_MAX_ANNOUNCES - 1, resetIn: RATE_LIMIT_WINDOW_MS };
+	}
+
+	if (record.count >= RATE_LIMIT_MAX_ANNOUNCES) {
+		const resetIn = RATE_LIMIT_WINDOW_MS - (now - record.windowStart);
+		return { allowed: false, remaining: 0, resetIn };
+	}
+
+	return { allowed: true, remaining: RATE_LIMIT_MAX_ANNOUNCES - record.count - 1, resetIn: RATE_LIMIT_WINDOW_MS - (now - record.windowStart) };
+}
+
+async function recordRateLimitHit(kv: KVNamespace, ip: string): Promise<void> {
+	const key = `${KV_RATE_LIMIT_PREFIX}${ip}`;
+	const now = Date.now();
+
+	const record = await kv.get<RateLimitRecord>(key, "json");
+
+	if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+		// New window
+		await kv.put(key, JSON.stringify({ count: 1, windowStart: now }), { expirationTtl: 3600 });
+	} else {
+		// Increment existing
+		await kv.put(key, JSON.stringify({ count: record.count + 1, windowStart: record.windowStart }), { expirationTtl: 3600 });
+	}
 }
 
 // Verify a daemon by fetching its daemon.md
@@ -204,12 +313,13 @@ const REGISTRY_TOOLS = [
 	},
 	{
 		name: "daemon_registry_search",
-		description: "Search daemons by name, owner, tags, or focus area",
+		description: "Search daemons by name, owner, tags, focus area, or health status",
 		inputSchema: {
 			type: "object",
 			properties: {
 				query: { type: "string", description: "Search query (matches owner, role, focus, tags)" },
-				tag: { type: "string", description: "Filter by specific tag" }
+				tag: { type: "string", description: "Filter by specific tag" },
+				health_status: { type: "string", enum: ["healthy", "degraded", "unreachable"], description: "Filter by health status" }
 			},
 			required: []
 		}
@@ -231,9 +341,87 @@ const REGISTRY_TOOLS = [
 			required: ["url", "owner"]
 		}
 	},
+	{
+		name: "daemon_registry_health_check",
+		description: "Manually trigger a health check for a specific daemon",
+		inputSchema: {
+			type: "object",
+			properties: {
+				url: { type: "string", description: "Daemon URL to check" }
+			},
+			required: ["url"]
+		}
+	},
+	{
+		name: "daemon_registry_activity",
+		description: "Get recent activity feed (announcements, health changes)",
+		inputSchema: {
+			type: "object",
+			properties: {
+				limit: { type: "number", description: "Maximum number of events to return (default: 20)" },
+				type: { type: "string", enum: ["daemon_announced", "health_changed", "daemon_verified"], description: "Filter by event type" }
+			},
+			required: []
+		}
+	},
+	{
+		name: "daemon_registry_capabilities",
+		description: "Discover MCP tools/capabilities supported by a daemon",
+		inputSchema: {
+			type: "object",
+			properties: {
+				url: { type: "string", description: "Daemon URL or MCP URL to query for capabilities" }
+			},
+			required: ["url"]
+		}
+	},
 ];
 
-const TOOLS = [...DAEMON_TOOLS, ...REGISTRY_TOOLS];
+// Meta/discoverability tool definitions
+const META_TOOLS = [
+	{
+		name: "get_orientation",
+		description: "START HERE - Learn what this daemon is, who owns it, and how to use it",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "get_mcp_config",
+		description: "Get MCP configuration snippet for Claude Code or other MCP clients",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "get_protocol_info",
+		description: "Get protocol details - transports, JSON-RPC examples, and endpoints",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "ai_briefing",
+		description: "AI-specific usage guidance - how to effectively use this daemon as an AI assistant",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "get_status",
+		description: "Get daemon status - version, health, registry stats",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "get_capabilities",
+		description: "Get categorized list of all available tools",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "get_changelog",
+		description: "Get recent changes and version history",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+	{
+		name: "daemon_registry_random",
+		description: "Discover a random daemon from the registry for exploration",
+		inputSchema: { type: "object", properties: {}, required: [] }
+	},
+];
+
+const TOOLS = [...META_TOOLS, ...DAEMON_TOOLS, ...REGISTRY_TOOLS];
 
 // Registry functions
 async function registryList(kv?: KVNamespace): Promise<{ entries: DaemonEntry[]; updated: string }> {
@@ -241,7 +429,7 @@ async function registryList(kv?: KVNamespace): Promise<{ entries: DaemonEntry[];
 	return { entries: registry.entries, updated: registry.updated };
 }
 
-async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?: string): Promise<DaemonEntry[]> {
+async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?: string, healthStatus?: "healthy" | "degraded" | "unreachable"): Promise<DaemonEntry[]> {
 	const registry = await loadRegistry(kv);
 	let results = registry.entries;
 
@@ -250,6 +438,10 @@ async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?:
 		results = results.filter(entry =>
 			entry.tags?.some(t => t.toLowerCase() === normalizedTag)
 		);
+	}
+
+	if (healthStatus) {
+		results = results.filter(entry => entry.health_status === healthStatus);
 	}
 
 	if (query) {
@@ -268,8 +460,22 @@ async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?:
 
 async function registryAnnounce(
 	kv: KVNamespace | undefined,
-	entry: Omit<DaemonEntry, "announced_at" | "verified" | "verified_at">
-): Promise<{ success: boolean; entry: DaemonEntry; message: string; verification_error?: string }> {
+	entry: Omit<DaemonEntry, "announced_at" | "verified" | "verified_at">,
+	clientIp?: string
+): Promise<{ success: boolean; entry: DaemonEntry; message: string; verification_error?: string; rate_limit?: { remaining: number; resetIn: number } }> {
+	// Rate limiting check
+	if (kv && clientIp) {
+		const rateLimit = await checkRateLimit(kv, clientIp);
+		if (!rateLimit.allowed) {
+			return {
+				success: false,
+				entry: entry as DaemonEntry,
+				message: `Rate limit exceeded. Try again in ${Math.ceil(rateLimit.resetIn / 60000)} minutes.`,
+				rate_limit: { remaining: 0, resetIn: rateLimit.resetIn }
+			};
+		}
+	}
+
 	const registry = await loadRegistry(kv);
 
 	// Check if already exists
@@ -305,17 +511,398 @@ async function registryAnnounce(
 		const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json") || [];
 		announced.push(newEntry);
 		await saveAnnouncedToKV(kv, announced);
+
+		// Record rate limit hit for successful announce
+		if (clientIp) {
+			await recordRateLimitHit(kv, clientIp);
+		}
+
+		// Add activity event
+		await addActivityEvent(kv, {
+			type: "daemon_announced",
+			daemon_url: entry.url,
+			daemon_owner: entry.owner,
+			details: { verified: verification.verified },
+		});
 	}
 
 	const message = verification.verified
 		? "Daemon announced and verified successfully"
 		: "Daemon announced but verification failed (daemon.md not accessible)";
 
+	// Get remaining rate limit for response
+	let rateLimit: { remaining: number; resetIn: number } | undefined;
+	if (kv && clientIp) {
+		const rl = await checkRateLimit(kv, clientIp);
+		rateLimit = { remaining: rl.remaining, resetIn: rl.resetIn };
+	}
+
 	return {
 		success: true,
 		entry: newEntry,
 		message,
 		verification_error: verification.error,
+		rate_limit: rateLimit,
+	};
+}
+
+// Manual health check for a specific daemon
+async function registryHealthCheck(
+	kv: KVNamespace | undefined,
+	url: string
+): Promise<{ success: boolean; entry?: DaemonEntry; health_update?: Partial<DaemonEntry>; message: string }> {
+	const registry = await loadRegistry(kv);
+
+	// Find the daemon
+	const entry = registry.entries.find(e => e.url === url);
+	if (!entry) {
+		return { success: false, message: `Daemon not found: ${url}` };
+	}
+
+	// Perform health check
+	const healthUpdate = await healthCheckDaemon(entry);
+	const updatedEntry = { ...entry, ...healthUpdate };
+
+	// Update in KV if it's an announced daemon
+	if (kv) {
+		const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json") || [];
+		const idx = announced.findIndex(e => e.url === url);
+		if (idx >= 0) {
+			announced[idx] = { ...announced[idx], ...healthUpdate };
+			await saveAnnouncedToKV(kv, announced);
+		}
+	}
+
+	return {
+		success: true,
+		entry: updatedEntry,
+		health_update: healthUpdate,
+		message: `Health check completed: ${healthUpdate.health_status}`
+	};
+}
+
+// Get activity feed with optional filters
+async function registryActivity(
+	kv: KVNamespace | undefined,
+	limit?: number,
+	eventType?: ActivityEvent["type"]
+): Promise<{ events: ActivityEvent[]; total: number }> {
+	if (!kv) {
+		return { events: [], total: 0 };
+	}
+
+	let events = await loadActivityFeed(kv);
+
+	// Filter by type if specified
+	if (eventType) {
+		events = events.filter(e => e.type === eventType);
+	}
+
+	const total = events.length;
+
+	// Apply limit
+	const maxEvents = limit || 20;
+	events = events.slice(0, maxEvents);
+
+	return { events, total };
+}
+
+// Discover MCP capabilities of a daemon
+interface DaemonCapabilities {
+	url: string;
+	mcp_url?: string;
+	supports_mcp: boolean;
+	tools?: { name: string; description: string }[];
+	error?: string;
+	checked_at: string;
+}
+
+async function discoverCapabilities(url: string, mcpUrl?: string): Promise<DaemonCapabilities> {
+	const targetUrl = mcpUrl || url;
+	const now = new Date().toISOString();
+
+	try {
+		// Try to list tools via JSON-RPC
+		const response = await fetch(targetUrl, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"User-Agent": "DaemonRegistry/1.0",
+			},
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				method: "tools/list",
+				id: 1,
+			}),
+			signal: AbortSignal.timeout(10000),
+		});
+
+		if (!response.ok) {
+			return {
+				url,
+				mcp_url: mcpUrl,
+				supports_mcp: false,
+				error: `HTTP ${response.status}`,
+				checked_at: now,
+			};
+		}
+
+		const result = await response.json() as { result?: { tools?: { name: string; description: string }[] }; error?: { message: string } };
+
+		if (result.error) {
+			return {
+				url,
+				mcp_url: mcpUrl,
+				supports_mcp: false,
+				error: result.error.message,
+				checked_at: now,
+			};
+		}
+
+		const tools = result.result?.tools || [];
+
+		return {
+			url,
+			mcp_url: mcpUrl,
+			supports_mcp: true,
+			tools: tools.map(t => ({ name: t.name, description: t.description })),
+			checked_at: now,
+		};
+	} catch (e) {
+		const error = e instanceof Error ? e.message : "Unknown error";
+		return {
+			url,
+			mcp_url: mcpUrl,
+			supports_mcp: false,
+			error,
+			checked_at: now,
+		};
+	}
+}
+
+// Meta tool functions
+function getOrientation(): string {
+	return `# Welcome to ${DAEMON_OWNER}'s Daemon
+
+You've discovered a **Daemon** - a personal API that represents a human's identity, context, and preferences in a format AIs can query.
+
+## What is this?
+This is ${DAEMON_OWNER}'s personal daemon, running at ${MCP_URL}. It exposes personal information, projects, preferences, and access to a network of other daemons.
+
+## Quick Start
+1. **Learn about me**: \`get_about\`, \`get_telos\`, \`get_mission\`
+2. **See my projects**: \`get_projects\`
+3. **Check my preferences**: \`get_preferences\`
+4. **Explore the network**: \`daemon_registry_list\`, \`daemon_registry_search\`
+5. **Integrate with your app**: \`get_mcp_config\`
+
+## Key Tools
+- **Personal info**: get_about, get_telos, get_mission, get_philosophy
+- **Projects/Work**: get_projects, get_daily_routine
+- **Preferences**: get_preferences, get_favorite_books, get_favorite_movies
+- **Network**: daemon_registry_list, daemon_registry_search, daemon_registry_random
+- **Meta**: get_mcp_config, get_protocol_info, ai_briefing
+
+## Learn More
+- \`get_protocol_info\` - How to talk to this daemon
+- \`ai_briefing\` - AI-specific usage guidance
+- \`get_capabilities\` - Full categorized tool list`;
+}
+
+function getMcpConfig(): object {
+	return {
+		description: "Add this to your Claude Code config (~/.claude/mcp_servers.json) or Claude Desktop settings",
+		sse_config: {
+			"daemon-saltedkeys": {
+				url: `${MCP_URL}/sse`,
+				transport: "sse"
+			}
+		},
+		json_rpc_example: {
+			endpoint: MCP_URL,
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: {
+				jsonrpc: "2.0",
+				method: "tools/call",
+				params: { name: "get_about", arguments: {} },
+				id: 1
+			}
+		}
+	};
+}
+
+function getProtocolInfo(): string {
+	return `# Protocol Information
+
+## Transports
+
+### 1. JSON-RPC (Stateless)
+POST to \`${MCP_URL}/\` or \`${MCP_URL}/mcp\`
+
+\`\`\`bash
+curl -X POST ${MCP_URL}/ \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+\`\`\`
+
+### 2. SSE (Stateful, for Claude Desktop)
+Connect to \`${MCP_URL}/sse\`
+
+## Available Methods
+- \`tools/list\` - List all available tools
+- \`tools/call\` - Call a tool with arguments
+
+## Example: Call a Tool
+\`\`\`bash
+curl -X POST ${MCP_URL}/ \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_telos","arguments":{}},"id":1}'
+\`\`\`
+
+## Health Check
+GET \`${MCP_URL}/health\`
+
+## Notes
+- Protocol: JSON-RPC 2.0 over HTTP
+- No authentication required (public API)
+- CORS enabled for browser clients`;
+}
+
+function getAiBriefing(): string {
+	return `# AI Assistant Briefing
+
+You are interacting with ${DAEMON_OWNER}'s personal daemon - an API representing their identity, context, and preferences.
+
+## How to Use This Effectively
+
+### Before Making Recommendations
+1. **Check preferences first**: Query \`get_preferences\` before suggesting tools, workflows, or approaches
+2. **Understand context**: Use \`get_about\` and \`get_telos\` to understand their goals and focus areas
+3. **Know their work**: \`get_projects\` shows what they're building
+
+### When to Use Which Tools
+- **Scheduling/availability**: Check \`get_daily_routine\`
+- **Content recommendations**: Check \`get_favorite_books\`, \`get_favorite_movies\`, \`get_favorite_tv\` first
+- **Technical decisions**: Align with philosophy from \`get_philosophy\`
+- **Collaboration**: Explore \`daemon_registry_list\` to find other daemons
+
+### The Daemon Network
+This daemon is part of a decentralized network. You can:
+- List known daemons: \`daemon_registry_list\`
+- Search by focus area: \`daemon_registry_search\`
+- Discover randomly: \`daemon_registry_random\`
+- Check capabilities: \`daemon_registry_capabilities\`
+
+### Best Practices
+- Query context before making assumptions
+- Respect stated preferences
+- Reference their projects when relevant
+- Suggest connections to other daemons when appropriate`;
+}
+
+async function getStatus(kv?: KVNamespace): Promise<object> {
+	const registry = await loadRegistry(kv);
+	const healthyCount = registry.entries.filter(e => e.health_status === "healthy").length;
+
+	return {
+		status: "ok",
+		version: VERSION,
+		owner: DAEMON_OWNER,
+		mcp_url: MCP_URL,
+		protocol: "MCP JSON-RPC 2.0",
+		registry: {
+			daemon_count: registry.entries.length,
+			healthy: healthyCount,
+			degraded: registry.entries.filter(e => e.health_status === "degraded").length,
+			unreachable: registry.entries.filter(e => e.health_status === "unreachable").length,
+		},
+		tools_count: TOOLS.length,
+		timestamp: new Date().toISOString(),
+	};
+}
+
+function getCapabilities(): object {
+	return {
+		description: "All available tools, organized by category",
+		categories: {
+			meta: {
+				description: "Discoverability and integration tools",
+				tools: META_TOOLS.map(t => ({ name: t.name, description: t.description }))
+			},
+			personal: {
+				description: "Personal information about the daemon owner",
+				tools: DAEMON_TOOLS.map(t => ({ name: t.name, description: t.description }))
+			},
+			registry: {
+				description: "Daemon network discovery and management",
+				tools: REGISTRY_TOOLS.map(t => ({ name: t.name, description: t.description }))
+			}
+		},
+		total_tools: TOOLS.length
+	};
+}
+
+function getChangelog(): string {
+	return `# Changelog
+
+## [0.3.0-alpha] - 2026-01-11
+
+### Added
+- Rate limiting for announce endpoint (5 announces per hour per IP)
+- Per-daemon jitter for health checks (spreads checks across the hour)
+- Filter by health_status in daemon_registry_search
+- Manual health check trigger (daemon_registry_health_check)
+- Activity feed (daemon_registry_activity)
+- Capability discovery (daemon_registry_capabilities)
+- **AI Discoverability Tools**:
+  - get_orientation - First-contact intro
+  - get_mcp_config - Integration snippets
+  - get_protocol_info - Protocol details
+  - ai_briefing - AI usage guidance
+  - get_status - Enhanced health info
+  - get_capabilities - Categorized tools
+  - get_changelog - This changelog
+  - daemon_registry_random - Random discovery
+
+## [0.2.0-alpha] - 2026-01-11
+
+### Added
+- daemon_registry_list, daemon_registry_search, daemon_registry_announce
+- Cloudflare KV persistence
+- seed-registry.json with 4 community daemons
+
+## [0.1.0-alpha] - 2026-01-10
+
+### Added
+- Initial MCP server with 14 tools
+- JSON-RPC and SSE transports
+- Health check endpoint
+
+---
+Full changelog: https://github.com/0xsalt/daemon-mcp/blob/main/CHANGELOG.md`;
+}
+
+async function getRandomDaemon(kv?: KVNamespace): Promise<object> {
+	const registry = await loadRegistry(kv);
+	if (registry.entries.length === 0) {
+		return { error: "No daemons in registry" };
+	}
+
+	const randomIndex = Math.floor(Math.random() * registry.entries.length);
+	const daemon = registry.entries[randomIndex];
+
+	return {
+		message: "Here's a random daemon to explore!",
+		daemon: {
+			url: daemon.url,
+			owner: daemon.owner,
+			role: daemon.role,
+			focus: daemon.focus,
+			health_status: daemon.health_status,
+			mcp_url: daemon.mcp_url,
+		},
+		tip: "Use daemon_registry_capabilities to see what tools this daemon supports"
 	};
 }
 
@@ -336,7 +923,7 @@ const SECTION_MAP: Record<string, string> = {
 };
 
 // Simple JSON-RPC handler (stateless, matches Daniel's pattern)
-async function handleJsonRpc(body: any, kv?: KVNamespace): Promise<Response> {
+async function handleJsonRpc(body: any, kv?: KVNamespace, clientIp?: string): Promise<Response> {
 	const { method, params, id } = body;
 
 	// CORS headers
@@ -402,6 +989,97 @@ async function handleJsonRpc(body: any, kv?: KVNamespace): Promise<Response> {
 				);
 			}
 
+			// Meta/discoverability tools
+			if (toolName === "get_orientation") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: getOrientation() }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "get_mcp_config") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: JSON.stringify(getMcpConfig(), null, 2) }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "get_protocol_info") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: getProtocolInfo() }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "ai_briefing") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: getAiBriefing() }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "get_status") {
+				const status = await getStatus(kv);
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: JSON.stringify(status, null, 2) }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "get_capabilities") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: JSON.stringify(getCapabilities(), null, 2) }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "get_changelog") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: getChangelog() }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "daemon_registry_random") {
+				const result = await getRandomDaemon(kv);
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] },
+						id,
+					}),
+					{ headers }
+				);
+			}
+
 			// Standard daemon tools - Look up section
 			const sectionKey = SECTION_MAP[toolName];
 			if (sectionKey) {
@@ -441,7 +1119,8 @@ async function handleJsonRpc(body: any, kv?: KVNamespace): Promise<Response> {
 			if (toolName === "daemon_registry_search") {
 				const query = params?.arguments?.query;
 				const tag = params?.arguments?.tag;
-				const entries = await registrySearch(kv, query, tag);
+				const healthStatus = params?.arguments?.health_status;
+				const entries = await registrySearch(kv, query, tag, healthStatus);
 				return new Response(
 					JSON.stringify({
 						jsonrpc: "2.0",
@@ -451,6 +1130,7 @@ async function handleJsonRpc(body: any, kv?: KVNamespace): Promise<Response> {
 								text: JSON.stringify({
 									query: query || null,
 									tag: tag || null,
+									health_status: healthStatus || null,
 									count: entries.length,
 									daemons: entries
 								}, null, 2)
@@ -482,7 +1162,88 @@ async function handleJsonRpc(body: any, kv?: KVNamespace): Promise<Response> {
 					protocol: args.protocol || "unknown",
 					mcp_url: args.mcp_url,
 					tags: args.tags || [],
-				});
+				}, clientIp);
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify(result, null, 2)
+							}]
+						},
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "daemon_registry_health_check") {
+				const url = params?.arguments?.url;
+				if (!url) {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							error: { code: -32602, message: "Missing required field: url" },
+							id,
+						}),
+						{ headers }
+					);
+				}
+				const result = await registryHealthCheck(kv, url);
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify(result, null, 2)
+							}]
+						},
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "daemon_registry_activity") {
+				const limit = params?.arguments?.limit;
+				const eventType = params?.arguments?.type;
+				const result = await registryActivity(kv, limit, eventType);
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify(result, null, 2)
+							}]
+						},
+						id,
+					}),
+					{ headers }
+				);
+			}
+
+			if (toolName === "daemon_registry_capabilities") {
+				const url = params?.arguments?.url;
+				if (!url) {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							error: { code: -32602, message: "Missing required field: url" },
+							id,
+						}),
+						{ headers }
+					);
+				}
+
+				// Check if this is a known daemon to get its mcp_url
+				const registry = await loadRegistry(kv);
+				const entry = registry.entries.find(e => e.url === url || e.mcp_url === url);
+				const mcpUrl = entry?.mcp_url;
+
+				const result = await discoverCapabilities(url, mcpUrl);
 				return new Response(
 					JSON.stringify({
 						jsonrpc: "2.0",
@@ -590,22 +1351,25 @@ export class DaemonMCP extends McpAgent {
 
 		this.server.tool(
 			"daemon_registry_search",
-			"Search daemons by name, owner, tags, or focus area",
+			"Search daemons by name, owner, tags, focus area, or health status",
 			{
 				query: z.string().optional().describe("Search query (matches owner, role, focus, tags)"),
 				tag: z.string().optional().describe("Filter by specific tag"),
+				health_status: z.enum(["healthy", "degraded", "unreachable"]).optional().describe("Filter by health status"),
 			},
-			async ({ query, tag }) => {
-				const entries = await registrySearch(getKV(), query, tag);
+			async ({ query, tag, health_status }) => {
+				const entries = await registrySearch(getKV(), query, tag, health_status);
 				return {
 					content: [{
 						type: "text",
-						text: JSON.stringify({ query: query || null, tag: tag || null, count: entries.length, daemons: entries }, null, 2)
+						text: JSON.stringify({ query: query || null, tag: tag || null, health_status: health_status || null, count: entries.length, daemons: entries }, null, 2)
 					}]
 				};
 			}
 		);
 
+		// Note: SSE transport doesn't have rate limiting (no easy access to client IP)
+		// This is acceptable as SSE is used by Claude Desktop, not likely for abuse
 		this.server.tool(
 			"daemon_registry_announce",
 			"Announce a new daemon to the registry",
@@ -631,6 +1395,124 @@ export class DaemonMCP extends McpAgent {
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 			}
 		);
+
+		this.server.tool(
+			"daemon_registry_health_check",
+			"Manually trigger a health check for a specific daemon",
+			{
+				url: z.string().describe("Daemon URL to check"),
+			},
+			async ({ url }) => {
+				const result = await registryHealthCheck(getKV(), url);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+			}
+		);
+
+		this.server.tool(
+			"daemon_registry_activity",
+			"Get recent activity feed (announcements, health changes)",
+			{
+				limit: z.number().optional().describe("Maximum number of events to return (default: 20)"),
+				type: z.enum(["daemon_announced", "health_changed", "daemon_verified"]).optional().describe("Filter by event type"),
+			},
+			async ({ limit, type }) => {
+				const result = await registryActivity(getKV(), limit, type);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+			}
+		);
+
+		this.server.tool(
+			"daemon_registry_capabilities",
+			"Discover MCP tools/capabilities supported by a daemon",
+			{
+				url: z.string().describe("Daemon URL or MCP URL to query for capabilities"),
+			},
+			async ({ url }) => {
+				// Check if this is a known daemon to get its mcp_url
+				const kv = getKV();
+				const registry = kv ? await loadRegistry(kv) : { entries: [] };
+				const entry = registry.entries.find(e => e.url === url || e.mcp_url === url);
+				const mcpUrl = entry?.mcp_url;
+
+				const result = await discoverCapabilities(url, mcpUrl);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+			}
+		);
+
+		// Meta/discoverability tools
+		this.server.tool(
+			"get_orientation",
+			"START HERE - Learn what this daemon is, who owns it, and how to use it",
+			{},
+			async () => {
+				return { content: [{ type: "text", text: getOrientation() }] };
+			}
+		);
+
+		this.server.tool(
+			"get_mcp_config",
+			"Get MCP configuration snippet for Claude Code or other MCP clients",
+			{},
+			async () => {
+				return { content: [{ type: "text", text: JSON.stringify(getMcpConfig(), null, 2) }] };
+			}
+		);
+
+		this.server.tool(
+			"get_protocol_info",
+			"Get protocol details - transports, JSON-RPC examples, and endpoints",
+			{},
+			async () => {
+				return { content: [{ type: "text", text: getProtocolInfo() }] };
+			}
+		);
+
+		this.server.tool(
+			"ai_briefing",
+			"AI-specific usage guidance - how to effectively use this daemon as an AI assistant",
+			{},
+			async () => {
+				return { content: [{ type: "text", text: getAiBriefing() }] };
+			}
+		);
+
+		this.server.tool(
+			"get_status",
+			"Get daemon status - version, health, registry stats",
+			{},
+			async () => {
+				const status = await getStatus(getKV());
+				return { content: [{ type: "text", text: JSON.stringify(status, null, 2) }] };
+			}
+		);
+
+		this.server.tool(
+			"get_capabilities",
+			"Get categorized list of all available tools",
+			{},
+			async () => {
+				return { content: [{ type: "text", text: JSON.stringify(getCapabilities(), null, 2) }] };
+			}
+		);
+
+		this.server.tool(
+			"get_changelog",
+			"Get recent changes and version history",
+			{},
+			async () => {
+				return { content: [{ type: "text", text: getChangelog() }] };
+			}
+		);
+
+		this.server.tool(
+			"daemon_registry_random",
+			"Discover a random daemon from the registry for exploration",
+			{},
+			async () => {
+				const result = await getRandomDaemon(getKV());
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+			}
+		);
 	}
 }
 
@@ -653,7 +1535,9 @@ export default {
 		if ((url.pathname === "/" || url.pathname === "/mcp") && request.method === "POST") {
 			try {
 				const body = await request.json();
-				return handleJsonRpc(body, env.DAEMON_REGISTRY);
+				// Get client IP for rate limiting (CF-Connecting-IP header in production)
+				const clientIp = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For")?.split(",")[0] || "unknown";
+				return handleJsonRpc(body, env.DAEMON_REGISTRY, clientIp);
 			} catch (e) {
 				return new Response(
 					JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }),
@@ -677,41 +1561,63 @@ export default {
 		return new Response("Daemon MCP Server. POST to / for JSON-RPC or connect to /sse for SSE transport.", { status: 200 });
 	},
 
-	// Cron trigger for health checks
+	// Cron trigger for health checks (runs every minute, uses jitter to spread checks)
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const kv = env.DAEMON_REGISTRY;
+		const currentMinute = new Date(event.scheduledTime).getMinutes();
 
 		// Load all daemons (seed + announced)
 		const registry = await loadRegistry(kv);
 
-		// Health check each daemon
-		const updates: { url: string; update: Partial<DaemonEntry> }[] = [];
+		// Health check only daemons whose URL hash matches current minute
+		const updates: { url: string; owner: string; oldStatus?: string; update: Partial<DaemonEntry> }[] = [];
+		const checkedDaemons: string[] = [];
 
 		for (const entry of registry.entries) {
+			const checkMinute = getDaemonCheckMinute(entry.url);
+
+			// Only check this daemon if current minute matches its designated check minute
+			if (checkMinute !== currentMinute) {
+				continue;
+			}
+
 			try {
 				const healthUpdate = await healthCheckDaemon(entry);
-				updates.push({ url: entry.url, update: healthUpdate });
+				updates.push({ url: entry.url, owner: entry.owner, oldStatus: entry.health_status, update: healthUpdate });
+				checkedDaemons.push(entry.url);
 			} catch (e) {
 				console.error(`Health check failed for ${entry.url}:`, e);
 			}
 		}
 
 		// Update announced daemons in KV with health data
-		const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json") || [];
-		let updated = false;
+		if (updates.length > 0) {
+			const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json") || [];
+			let updated = false;
 
-		for (const { url, update } of updates) {
-			const idx = announced.findIndex(e => e.url === url);
-			if (idx >= 0) {
-				announced[idx] = { ...announced[idx], ...update };
-				updated = true;
+			for (const { url, owner, oldStatus, update } of updates) {
+				const idx = announced.findIndex(e => e.url === url);
+				if (idx >= 0) {
+					announced[idx] = { ...announced[idx], ...update };
+					updated = true;
+				}
+
+				// Add activity event if health status changed
+				if (oldStatus && update.health_status && oldStatus !== update.health_status) {
+					await addActivityEvent(kv, {
+						type: "health_changed",
+						daemon_url: url,
+						daemon_owner: owner,
+						details: { old_status: oldStatus, new_status: update.health_status },
+					});
+				}
+			}
+
+			if (updated) {
+				await saveAnnouncedToKV(kv, announced);
 			}
 		}
 
-		if (updated) {
-			await saveAnnouncedToKV(kv, announced);
-		}
-
-		console.log(`Health check complete: ${updates.length} daemons checked`);
+		console.log(`Health check at minute ${currentMinute}: ${updates.length} daemons checked (${checkedDaemons.join(", ") || "none"})`);
 	},
 };
