@@ -178,3 +178,7 @@ dist
 # Local wrangler config (use wrangler.jsonc.example as template)
 wrangler.jsonc
 !wrangler.jsonc.example
+
+# Private documentation
+docs/internal/
+!docs/internal/.gitkeep

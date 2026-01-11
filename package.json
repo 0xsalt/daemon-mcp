@@ -1,6 +1,7 @@
 {
-	"name": "remote-mcp-server-authless",
-	"version": "0.0.0",
+	"name": "daemon-mcp",
+	"version": "0.1.0-alpha",
+	"description": "MCP server for the Daemon ecosystem - AI-queryable personal API with plugin support",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
