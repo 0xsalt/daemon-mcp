@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `mcp` = speaks MCP protocol (you can query it)
   - `web` = website only, no MCP capability
   - `offline` = can't reach it
+- Added `healthy` boolean to signal intent (prevents clients from showing warnings for web-only sites)
 - Cron trigger now runs every minute (jitter logic determines which daemons to check)
 - Reframed `get_orientation` to emphasize UL Community Daemon Registry first, personal daemon second
 

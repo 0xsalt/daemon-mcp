@@ -29,8 +29,10 @@ interface DaemonEntry {
 
 	// Health tracking (updated by cron)
 	// status: mcp = speaks MCP, web = website only, offline = can't reach
+	// healthy: true = working as expected, false = something wrong
 	last_checked?: string;
 	status?: "mcp" | "web" | "offline";
+	healthy?: boolean;
 }
 
 interface Registry {
@@ -271,14 +273,16 @@ async function healthCheckDaemon(entry: DaemonEntry): Promise<Partial<DaemonEntr
 		return {
 			last_checked: now,
 			status: "mcp",
+			healthy: true,
 		};
 	}
 
-	// Web only - site is up but no MCP capability
+	// Web only - site is up but no MCP capability (still healthy - it's working as intended)
 	if (webReachable) {
 		return {
 			last_checked: now,
 			status: "web",
+			healthy: true,
 		};
 	}
 
@@ -286,6 +290,7 @@ async function healthCheckDaemon(entry: DaemonEntry): Promise<Partial<DaemonEntr
 	return {
 		last_checked: now,
 		status: "offline",
+		healthy: false,
 	};
 }
 
@@ -562,6 +567,7 @@ async function registryAnnounce(
 		verified_at: now,
 		last_checked: now,
 		status: verification.verified ? "mcp" : "web",
+		healthy: true, // If we can reach it at all, it's healthy
 	};
 
 	// Persist to KV if available

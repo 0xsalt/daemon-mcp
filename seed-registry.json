@@ -10,7 +10,8 @@
 			"mcp_url": "https://mcp.daemon.danielmiessler.com/",
 			"tags": ["security", "ai", "philosophy", "upstream"],
 			"verified": true,
-			"status": "mcp"
+			"status": "mcp",
+			"healthy": true
 		},
 		{
 			"url": "https://daemon.saltedkeys.io/",
@@ -21,7 +22,8 @@
 			"mcp_url": "https://mcp.daemon.saltedkeys.io/",
 			"tags": ["security", "ai", "privacy", "self-hosted"],
 			"verified": true,
-			"status": "mcp"
+			"status": "mcp",
+			"healthy": true
 		},
 		{
 			"url": "https://daemon.nocooldowns.io/",
@@ -31,7 +33,8 @@
 			"protocol": "json-rpc",
 			"tags": ["security", "ai", "enterprise"],
 			"verified": true,
-			"status": "mcp"
+			"status": "mcp",
+			"healthy": true
 		},
 		{
 			"url": "https://wallykroeker.com/daemon",
@@ -42,7 +45,8 @@
 			"api_url": "https://wallykroeker.com/api/daemon",
 			"tags": ["self-hosted", "homelab"],
 			"verified": false,
-			"status": "web"
+			"status": "web",
+			"healthy": true
 		}
 	],
 	"updated": "2026-01-11T00:00:00Z"
