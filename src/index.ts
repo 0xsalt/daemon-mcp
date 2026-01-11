@@ -28,9 +28,9 @@ interface DaemonEntry {
 	verified_at?: string;
 
 	// Health tracking (updated by cron)
+	// status: mcp = speaks MCP, web = website only, offline = can't reach
 	last_checked?: string;
-	health_status?: "healthy" | "degraded" | "unreachable";
-	consecutive_failures?: number;
+	status?: "mcp" | "web" | "offline";
 }
 
 interface Registry {
@@ -208,25 +208,85 @@ async function verifyDaemon(daemonUrl: string): Promise<{ verified: boolean; err
 	}
 }
 
+// Check if URL responds to MCP tools/list
+async function checkMcpCapability(daemonUrl: string): Promise<boolean> {
+	const baseUrl = daemonUrl.endsWith("/") ? daemonUrl.slice(0, -1) : daemonUrl;
+
+	try {
+		const response = await fetch(baseUrl, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"User-Agent": "DaemonRegistry/1.0"
+			},
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				method: "tools/list",
+				id: 1
+			}),
+			signal: AbortSignal.timeout(10000),
+		});
+
+		if (!response.ok) return false;
+
+		const data = await response.json() as { result?: { tools?: unknown[] } };
+		// Check for valid MCP response structure
+		return data?.result?.tools !== undefined;
+	} catch {
+		return false;
+	}
+}
+
+// Check if URL is reachable as a web page
+async function checkWebReachable(daemonUrl: string): Promise<boolean> {
+	try {
+		const response = await fetch(daemonUrl, {
+			method: "GET",
+			headers: { "User-Agent": "DaemonRegistry/1.0" },
+			signal: AbortSignal.timeout(10000),
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
+
 // Health check a daemon (called by cron)
+// Returns status: mcp (speaks MCP), web (website only), offline (can't reach)
 async function healthCheckDaemon(entry: DaemonEntry): Promise<Partial<DaemonEntry>> {
-	const { verified, error } = await verifyDaemon(entry.url);
 	const now = new Date().toISOString();
 
-	if (verified) {
+	// Check both web and MCP availability in parallel
+	const [webReachable, mcpReachable] = await Promise.all([
+		checkWebReachable(entry.url),
+		checkMcpCapability(entry.url)
+	]);
+
+	// Also check daemon.md for legacy verification (counts as MCP-capable)
+	const { verified } = await verifyDaemon(entry.url);
+
+	// Determine status: mcp > web > offline
+	// MCP capability (either tools/list responds OR has valid daemon.md)
+	if (mcpReachable || verified) {
 		return {
 			last_checked: now,
-			health_status: "healthy",
-			consecutive_failures: 0,
-		};
-	} else {
-		const failures = (entry.consecutive_failures || 0) + 1;
-		return {
-			last_checked: now,
-			health_status: failures >= 3 ? "unreachable" : "degraded",
-			consecutive_failures: failures,
+			status: "mcp",
 		};
 	}
+
+	// Web only - site is up but no MCP capability
+	if (webReachable) {
+		return {
+			last_checked: now,
+			status: "web",
+		};
+	}
+
+	// Nothing responds
+	return {
+		last_checked: now,
+		status: "offline",
+	};
 }
 
 // Cache for parsed daemon data
@@ -319,7 +379,7 @@ const REGISTRY_TOOLS = [
 			properties: {
 				query: { type: "string", description: "Search query (matches owner, role, focus, tags)" },
 				tag: { type: "string", description: "Filter by specific tag" },
-				health_status: { type: "string", enum: ["healthy", "degraded", "unreachable"], description: "Filter by health status" }
+				status: { type: "string", enum: ["mcp", "web", "offline"], description: "Filter by status (mcp=speaks MCP, web=website only, offline=unreachable)" }
 			},
 			required: []
 		}
@@ -381,7 +441,7 @@ const REGISTRY_TOOLS = [
 const META_TOOLS = [
 	{
 		name: "get_orientation",
-		description: "START HERE - Learn what this daemon is, who owns it, and how to use it",
+		description: "START HERE - UL Community Daemon Registry and how to explore the network",
 		inputSchema: { type: "object", properties: {}, required: [] }
 	},
 	{
@@ -429,7 +489,7 @@ async function registryList(kv?: KVNamespace): Promise<{ entries: DaemonEntry[];
 	return { entries: registry.entries, updated: registry.updated };
 }
 
-async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?: string, healthStatus?: "healthy" | "degraded" | "unreachable"): Promise<DaemonEntry[]> {
+async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?: string, healthStatus?: "mcp" | "web" | "offline"): Promise<DaemonEntry[]> {
 	const registry = await loadRegistry(kv);
 	let results = registry.entries;
 
@@ -441,7 +501,7 @@ async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?:
 	}
 
 	if (healthStatus) {
-		results = results.filter(entry => entry.health_status === healthStatus);
+		results = results.filter(entry => entry.status === healthStatus);
 	}
 
 	if (query) {
@@ -501,8 +561,7 @@ async function registryAnnounce(
 		verified: verification.verified,
 		verified_at: now,
 		last_checked: now,
-		health_status: verification.verified ? "healthy" : "degraded",
-		consecutive_failures: verification.verified ? 0 : 1,
+		status: verification.verified ? "mcp" : "web",
 	};
 
 	// Persist to KV if available
@@ -577,7 +636,7 @@ async function registryHealthCheck(
 		success: true,
 		entry: updatedEntry,
 		health_update: healthUpdate,
-		message: `Health check completed: ${healthUpdate.health_status}`
+		message: `Health check completed: ${healthUpdate.status}`
 	};
 }
 
@@ -682,31 +741,34 @@ async function discoverCapabilities(url: string, mcpUrl?: string): Promise<Daemo
 
 // Meta tool functions
 function getOrientation(): string {
-	return `# Welcome to ${DAEMON_OWNER}'s Daemon
+	return `# UL Community Daemon Registry
 
-You've discovered a **Daemon** - a personal API that represents a human's identity, context, and preferences in a format AIs can query.
+You've discovered the **UL Community Daemon Registry** - a curated directory of MCP-enabled personal APIs (Daemons) from the Unsupervised Learning community.
 
-## What is this?
-This is ${DAEMON_OWNER}'s personal daemon, running at ${MCP_URL}. It exposes personal information, projects, preferences, and access to a network of other daemons.
+## What is a Daemon?
+A Daemon is a personal API that represents a human's identity, context, and preferences in a format AIs can query. Think of it as a machine-readable "About Me" that AI assistants can use to personalize interactions.
 
-## Quick Start
-1. **Learn about me**: \`get_about\`, \`get_telos\`, \`get_mission\`
-2. **See my projects**: \`get_projects\`
-3. **Check my preferences**: \`get_preferences\`
-4. **Explore the network**: \`daemon_registry_list\`, \`daemon_registry_search\`
-5. **Integrate with your app**: \`get_mcp_config\`
+## Registry Tools (Start Here)
+- \`daemon_registry_list\` - Browse all registered daemons
+- \`daemon_registry_search\` - Search by name, tag, or focus area
+- \`daemon_registry_random\` - Discover a random daemon
+- \`daemon_registry_capabilities\` - See what tools each daemon offers
+- \`daemon_registry_announce\` - Register your own daemon
 
-## Key Tools
-- **Personal info**: get_about, get_telos, get_mission, get_philosophy
-- **Projects/Work**: get_projects, get_daily_routine
-- **Preferences**: get_preferences, get_favorite_books, get_favorite_movies
-- **Network**: daemon_registry_list, daemon_registry_search, daemon_registry_random
-- **Meta**: get_mcp_config, get_protocol_info, ai_briefing
+## About This Server
+This registry is hosted by ${DAEMON_OWNER} and also serves as ${DAEMON_OWNER}'s personal daemon. You can explore ${DAEMON_OWNER}'s info if you're curious:
+- \`get_about\`, \`get_telos\`, \`get_mission\` - Personal info
+- \`get_projects\` - Current work
+- \`get_preferences\` - Tech/tool preferences
+
+## Integration
+- \`get_mcp_config\` - Add this server to Claude Code/Desktop
+- \`get_protocol_info\` - Technical details for custom integrations
+- \`ai_briefing\` - AI-specific usage guidance
 
 ## Learn More
-- \`get_protocol_info\` - How to talk to this daemon
-- \`ai_briefing\` - AI-specific usage guidance
-- \`get_capabilities\` - Full categorized tool list`;
+- \`get_capabilities\` - Full categorized tool list
+- \`get_changelog\` - Recent updates`;
 }
 
 function getMcpConfig(): object {
@@ -803,7 +865,6 @@ This daemon is part of a decentralized network. You can:
 
 async function getStatus(kv?: KVNamespace): Promise<object> {
 	const registry = await loadRegistry(kv);
-	const healthyCount = registry.entries.filter(e => e.health_status === "healthy").length;
 
 	return {
 		status: "ok",
@@ -813,9 +874,9 @@ async function getStatus(kv?: KVNamespace): Promise<object> {
 		protocol: "MCP JSON-RPC 2.0",
 		registry: {
 			daemon_count: registry.entries.length,
-			healthy: healthyCount,
-			degraded: registry.entries.filter(e => e.health_status === "degraded").length,
-			unreachable: registry.entries.filter(e => e.health_status === "unreachable").length,
+			mcp: registry.entries.filter(e => e.status === "mcp").length,
+			web: registry.entries.filter(e => e.status === "web").length,
+			offline: registry.entries.filter(e => e.status === "offline").length,
 		},
 		tools_count: TOOLS.length,
 		timestamp: new Date().toISOString(),
@@ -851,7 +912,7 @@ function getChangelog(): string {
 ### Added
 - Rate limiting for announce endpoint (5 announces per hour per IP)
 - Per-daemon jitter for health checks (spreads checks across the hour)
-- Filter by health_status in daemon_registry_search
+- Filter by status in daemon_registry_search
 - Manual health check trigger (daemon_registry_health_check)
 - Activity feed (daemon_registry_activity)
 - Capability discovery (daemon_registry_capabilities)
@@ -899,7 +960,7 @@ async function getRandomDaemon(kv?: KVNamespace): Promise<object> {
 			owner: daemon.owner,
 			role: daemon.role,
 			focus: daemon.focus,
-			health_status: daemon.health_status,
+			status: daemon.status,
 			mcp_url: daemon.mcp_url,
 		},
 		tip: "Use daemon_registry_capabilities to see what tools this daemon supports"
@@ -1119,8 +1180,8 @@ async function handleJsonRpc(body: any, kv?: KVNamespace, clientIp?: string): Pr
 			if (toolName === "daemon_registry_search") {
 				const query = params?.arguments?.query;
 				const tag = params?.arguments?.tag;
-				const healthStatus = params?.arguments?.health_status;
-				const entries = await registrySearch(kv, query, tag, healthStatus);
+				const statusFilter = params?.arguments?.status;
+				const entries = await registrySearch(kv, query, tag, statusFilter);
 				return new Response(
 					JSON.stringify({
 						jsonrpc: "2.0",
@@ -1130,7 +1191,7 @@ async function handleJsonRpc(body: any, kv?: KVNamespace, clientIp?: string): Pr
 								text: JSON.stringify({
 									query: query || null,
 									tag: tag || null,
-									health_status: healthStatus || null,
+									status: statusFilter || null,
 									count: entries.length,
 									daemons: entries
 								}, null, 2)
@@ -1351,18 +1412,18 @@ export class DaemonMCP extends McpAgent {
 
 		this.server.tool(
 			"daemon_registry_search",
-			"Search daemons by name, owner, tags, focus area, or health status",
+			"Search daemons by name, owner, tags, focus area, or status",
 			{
 				query: z.string().optional().describe("Search query (matches owner, role, focus, tags)"),
 				tag: z.string().optional().describe("Filter by specific tag"),
-				health_status: z.enum(["healthy", "degraded", "unreachable"]).optional().describe("Filter by health status"),
+				status: z.enum(["mcp", "web", "offline"]).optional().describe("Filter by status (mcp=speaks MCP, web=website only, offline=unreachable)"),
 			},
-			async ({ query, tag, health_status }) => {
-				const entries = await registrySearch(getKV(), query, tag, health_status);
+			async ({ query, tag, status }) => {
+				const entries = await registrySearch(getKV(), query, tag, status);
 				return {
 					content: [{
 						type: "text",
-						text: JSON.stringify({ query: query || null, tag: tag || null, health_status: health_status || null, count: entries.length, daemons: entries }, null, 2)
+						text: JSON.stringify({ query: query || null, tag: tag || null, status: status || null, count: entries.length, daemons: entries }, null, 2)
 					}]
 				};
 			}
@@ -1583,7 +1644,7 @@ export default {
 
 			try {
 				const healthUpdate = await healthCheckDaemon(entry);
-				updates.push({ url: entry.url, owner: entry.owner, oldStatus: entry.health_status, update: healthUpdate });
+				updates.push({ url: entry.url, owner: entry.owner, oldStatus: entry.status, update: healthUpdate });
 				checkedDaemons.push(entry.url);
 			} catch (e) {
 				console.error(`Health check failed for ${entry.url}:`, e);
@@ -1602,13 +1663,13 @@ export default {
 					updated = true;
 				}
 
-				// Add activity event if health status changed
-				if (oldStatus && update.health_status && oldStatus !== update.health_status) {
+				// Add activity event if status changed
+				if (oldStatus && update.status && oldStatus !== update.status) {
 					await addActivityEvent(kv, {
 						type: "health_changed",
 						daemon_url: url,
 						daemon_owner: owner,
-						details: { old_status: oldStatus, new_status: update.health_status },
+						details: { old_status: oldStatus, new_status: update.status },
 					});
 				}
 			}

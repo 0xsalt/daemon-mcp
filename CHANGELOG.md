@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - AI discoverability tools (8 new meta tools for first-contact experience):
-  - `get_orientation` - START HERE intro explaining what this daemon is
+  - `get_orientation` - START HERE intro for UL Community Daemon Registry
   - `get_mcp_config` - Integration snippet for Claude Code/Desktop
   - `get_protocol_info` - Transport details and example requests
   - `ai_briefing` - AI-specific usage guidance
@@ -25,7 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `daemon_registry_capabilities` tool for MCP tool auto-discovery
 
 ### Changed
+- Simplified `status` field to 3 clear values: `mcp`, `web`, `offline`
+  - `mcp` = speaks MCP protocol (you can query it)
+  - `web` = website only, no MCP capability
+  - `offline` = can't reach it
 - Cron trigger now runs every minute (jitter logic determines which daemons to check)
+- Reframed `get_orientation` to emphasize UL Community Daemon Registry first, personal daemon second
 
 ## [0.3.0-alpha] - 2026-01-11
 
