@@ -1,7 +1,8 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "daemon-mcp",
+	"name": "your-daemon-mcp",
 	"main": "src/index.ts",
+	"workers_dev": true,
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
 	"migrations": [
@@ -21,8 +22,8 @@
 	"observability": {
 		"enabled": false
 	}
-	// Custom domain route - add after DNS setup:
+	// Uncomment and customize for your domain:
 	// "routes": [
-	//   { "pattern": "mcp.daemon.saltedkeys.io", "custom_domain": true }
+	//   { "pattern": "mcp.daemon.yourdomain.com", "custom_domain": true }
 	// ]
 }
