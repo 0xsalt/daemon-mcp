@@ -8,8 +8,8 @@
 
 ## NOW
 
-- [ ] Cloudflare KV for persistent storage
-- [ ] Test and deploy registry tools
+- [ ] Deploy registry tools to production
+- [ ] Test KV persistence on production
 
 ## BACKLOG
 
@@ -28,6 +28,7 @@
 
 ## DONE
 
+- [x] Cloudflare KV persistence for registry [2026-01-11]
 - [x] `daemon_registry_list` tool [2026-01-11]
 - [x] `daemon_registry_search` tool [2026-01-11]
 - [x] `daemon_registry_announce` tool [2026-01-11]

@@ -19,6 +19,15 @@
 			}
 		]
 	},
+	// KV namespace for persistent registry storage
+	// Create with: npx wrangler kv namespace create DAEMON_REGISTRY
+	// Then add the id from the output below
+	"kv_namespaces": [
+		{
+			"binding": "DAEMON_REGISTRY",
+			"id": "YOUR_KV_NAMESPACE_ID"
+		}
+	],
 	"observability": {
 		"enabled": false
 	}

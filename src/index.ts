@@ -26,13 +26,40 @@ interface Registry {
 	updated: string;
 }
 
-// In-memory registry (seed + announced daemons)
-// TODO: Replace with Cloudflare KV for persistence
-let registryCache: Registry = {
-	version: seedRegistry.version,
-	entries: [...seedRegistry.entries],
-	updated: seedRegistry.updated,
-};
+// KV key for storing announced daemons
+const KV_ANNOUNCED_KEY = "announced_daemons";
+
+// In-memory cache (refreshed from KV on each request)
+let registryCache: Registry | null = null;
+
+// Load registry from seed + KV
+async function loadRegistry(kv?: KVNamespace): Promise<Registry> {
+	// Start with seed entries
+	const entries: DaemonEntry[] = [...seedRegistry.entries];
+
+	// Load announced daemons from KV if available
+	if (kv) {
+		try {
+			const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json");
+			if (announced && Array.isArray(announced)) {
+				entries.push(...announced);
+			}
+		} catch (e) {
+			console.error("Failed to load announced daemons from KV:", e);
+		}
+	}
+
+	return {
+		version: seedRegistry.version,
+		entries,
+		updated: new Date().toISOString(),
+	};
+}
+
+// Save announced daemons to KV
+async function saveAnnouncedToKV(kv: KVNamespace, announced: DaemonEntry[]): Promise<void> {
+	await kv.put(KV_ANNOUNCED_KEY, JSON.stringify(announced));
+}
 
 // Cache for parsed daemon data
 let daemonCache: { sections: Record<string, string>; lastFetch: number } | null = null;
@@ -150,12 +177,14 @@ const REGISTRY_TOOLS = [
 const TOOLS = [...DAEMON_TOOLS, ...REGISTRY_TOOLS];
 
 // Registry functions
-function registryList(): DaemonEntry[] {
-	return registryCache.entries;
+async function registryList(kv?: KVNamespace): Promise<{ entries: DaemonEntry[]; updated: string }> {
+	const registry = await loadRegistry(kv);
+	return { entries: registry.entries, updated: registry.updated };
 }
 
-function registrySearch(query?: string, tag?: string): DaemonEntry[] {
-	let results = registryCache.entries;
+async function registrySearch(kv: KVNamespace | undefined, query?: string, tag?: string): Promise<DaemonEntry[]> {
+	const registry = await loadRegistry(kv);
+	let results = registry.entries;
 
 	if (tag) {
 		const normalizedTag = tag.toLowerCase();
@@ -178,9 +207,14 @@ function registrySearch(query?: string, tag?: string): DaemonEntry[] {
 	return results;
 }
 
-function registryAnnounce(entry: Omit<DaemonEntry, "announced_at">): { success: boolean; entry: DaemonEntry; message: string } {
+async function registryAnnounce(
+	kv: KVNamespace | undefined,
+	entry: Omit<DaemonEntry, "announced_at">
+): Promise<{ success: boolean; entry: DaemonEntry; message: string }> {
+	const registry = await loadRegistry(kv);
+
 	// Check if already exists
-	const existing = registryCache.entries.find(e => e.url === entry.url);
+	const existing = registry.entries.find(e => e.url === entry.url);
 	if (existing) {
 		return { success: false, entry: existing, message: "Daemon already registered" };
 	}
@@ -197,10 +231,14 @@ function registryAnnounce(entry: Omit<DaemonEntry, "announced_at">): { success: 
 		announced_at: new Date().toISOString(),
 	};
 
-	registryCache.entries.push(newEntry);
-	registryCache.updated = new Date().toISOString();
+	// Persist to KV if available
+	if (kv) {
+		// Get current announced list (excluding seed entries)
+		const announced = await kv.get<DaemonEntry[]>(KV_ANNOUNCED_KEY, "json") || [];
+		announced.push(newEntry);
+		await saveAnnouncedToKV(kv, announced);
+	}
 
-	// TODO: Persist to Cloudflare KV
 	return { success: true, entry: newEntry, message: "Daemon announced successfully" };
 }
 
@@ -221,7 +259,7 @@ const SECTION_MAP: Record<string, string> = {
 };
 
 // Simple JSON-RPC handler (stateless, matches Daniel's pattern)
-async function handleJsonRpc(body: any): Promise<Response> {
+async function handleJsonRpc(body: any, kv?: KVNamespace): Promise<Response> {
 	const { method, params, id } = body;
 
 	// CORS headers
@@ -303,7 +341,7 @@ async function handleJsonRpc(body: any): Promise<Response> {
 
 			// Registry tools
 			if (toolName === "daemon_registry_list") {
-				const entries = registryList();
+				const { entries, updated } = await registryList(kv);
 				return new Response(
 					JSON.stringify({
 						jsonrpc: "2.0",
@@ -313,7 +351,7 @@ async function handleJsonRpc(body: any): Promise<Response> {
 								text: JSON.stringify({
 									count: entries.length,
 									daemons: entries,
-									updated: registryCache.updated
+									updated
 								}, null, 2)
 							}]
 						},
@@ -326,7 +364,7 @@ async function handleJsonRpc(body: any): Promise<Response> {
 			if (toolName === "daemon_registry_search") {
 				const query = params?.arguments?.query;
 				const tag = params?.arguments?.tag;
-				const entries = registrySearch(query, tag);
+				const entries = await registrySearch(kv, query, tag);
 				return new Response(
 					JSON.stringify({
 						jsonrpc: "2.0",
@@ -359,7 +397,7 @@ async function handleJsonRpc(body: any): Promise<Response> {
 						{ headers }
 					);
 				}
-				const result = registryAnnounce({
+				const result = await registryAnnounce(kv, {
 					url: args.url,
 					owner: args.owner,
 					role: args.role,
@@ -455,16 +493,19 @@ export class DaemonMCP extends McpAgent {
 		}
 
 		// Register registry tools
+		// Note: SSE transport uses this.env for KV access
+		const getKV = () => (this.env as Env)?.DAEMON_REGISTRY;
+
 		this.server.tool(
 			"daemon_registry_list",
 			"List all known daemons in the registry",
 			{},
 			async () => {
-				const entries = registryList();
+				const { entries, updated } = await registryList(getKV());
 				return {
 					content: [{
 						type: "text",
-						text: JSON.stringify({ count: entries.length, daemons: entries, updated: registryCache.updated }, null, 2)
+						text: JSON.stringify({ count: entries.length, daemons: entries, updated }, null, 2)
 					}]
 				};
 			}
@@ -478,7 +519,7 @@ export class DaemonMCP extends McpAgent {
 				tag: z.string().optional().describe("Filter by specific tag"),
 			},
 			async ({ query, tag }) => {
-				const entries = registrySearch(query, tag);
+				const entries = await registrySearch(getKV(), query, tag);
 				return {
 					content: [{
 						type: "text",
@@ -501,7 +542,7 @@ export class DaemonMCP extends McpAgent {
 				tags: z.array(z.string()).optional().describe("Searchable tags"),
 			},
 			async ({ url, owner, role, focus, protocol, mcp_url, tags }) => {
-				const result = registryAnnounce({
+				const result = await registryAnnounce(getKV(), {
 					url,
 					owner,
 					role,
@@ -535,7 +576,7 @@ export default {
 		if ((url.pathname === "/" || url.pathname === "/mcp") && request.method === "POST") {
 			try {
 				const body = await request.json();
-				return handleJsonRpc(body);
+				return handleJsonRpc(body, env.DAEMON_REGISTRY);
 			} catch (e) {
 				return new Response(
 					JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }),
