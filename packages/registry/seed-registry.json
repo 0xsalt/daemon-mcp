@@ -1,0 +1,69 @@
+{
+	"version": 2,
+	"entries": [
+		{
+			"id": "com.danielmiessler.daniel",
+			"url": "https://daemon.danielmiessler.com/",
+			"owner": "Daniel Miessler",
+			"role": "Cyber/AI thought leader",
+			"focus": ["Human 3.0", "Frame", "Threshold"],
+			"protocol": "mcp-rpc",
+			"mcp_url": "https://mcp.daemon.danielmiessler.com/",
+			"tags": ["security", "ai", "philosophy", "upstream"],
+			"verified": true,
+			"status": "mcp",
+			"healthy": true
+		},
+		{
+			"id": "io.saltedkeys.swift",
+			"url": "https://daemon.saltedkeys.io/",
+			"owner": "Swift",
+			"role": "Security to AI pivot",
+			"focus": ["Data sovereignty", "Privacy-first tools"],
+			"protocol": "mcp-rpc",
+			"mcp_url": "https://mcp.daemon.saltedkeys.io/",
+			"tags": ["security", "ai", "privacy", "self-hosted"],
+			"verified": true,
+			"status": "mcp",
+			"healthy": true
+		},
+		{
+			"id": "io.nocooldowns.scott",
+			"url": "https://daemon.nocooldowns.io/",
+			"owner": "Scott Behrens",
+			"role": "Principal Security Engineer @ Netflix",
+			"focus": ["AI-native security strategy"],
+			"protocol": "json-rpc",
+			"tags": ["security", "ai", "enterprise"],
+			"verified": true,
+			"status": "mcp",
+			"healthy": true
+		},
+		{
+			"id": "com.wallykroeker.wally",
+			"url": "https://wallykroeker.com/daemon",
+			"owner": "Wally Kroeker",
+			"role": "Self-hosted enthusiast",
+			"focus": ["Personal lab hosting"],
+			"protocol": "unknown",
+			"api_url": "https://wallykroeker.com/api/daemon",
+			"tags": ["self-hosted", "homelab"],
+			"verified": false,
+			"status": "web",
+			"healthy": true
+		},
+		{
+			"id": "info.voidwire.daemon",
+			"url": "https://daemon.voidwire.info/",
+			"owner": "Voidwire",
+			"role": "Community daemon",
+			"focus": [],
+			"protocol": "unknown",
+			"tags": ["community"],
+			"verified": false,
+			"status": "web",
+			"healthy": true
+		}
+	],
+	"updated": "2026-01-28T00:00:00Z"
+}

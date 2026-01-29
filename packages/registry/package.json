@@ -1,0 +1,23 @@
+{
+	"name": "@daemon-mcp/registry",
+	"version": "1.0.0",
+	"description": "UL Community Daemon Registry - MCP server for daemon discovery",
+	"private": true,
+	"main": "src/index.ts",
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.23.0",
+		"agents": "^0.3.1",
+		"zod": "^4.2.1"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20250124.0",
+		"@types/node": "^25.0.3",
+		"typescript": "5.9.3",
+		"wrangler": "^4.58.0"
+	}
+}

@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-28
+
+### Added
+- **Namespace-based daemon IDs** - Each daemon now has a stable, portable identifier
+  - Format: `<reversed-domain>.<identifier>` (e.g., `io.saltedkeys.swift`)
+  - Auto-derived from URL on announce if not provided
+  - Designed for future ARC protocol integration
+- `content_hash` field in `DaemonEntry` for future change detection
+- `SECURITY.md` documenting zero code execution design
+- New community daemon: `info.voidwire.daemon` (daemon.voidwire.info)
+
+### Changed
+- Registry seed data now includes `id` field for all daemons
+- Search now matches against daemon ID in addition to other fields
+- Bumped seed registry version to 2
+
+### Security
+- Documented and audited that the MCP server has zero code execution capability
+- All tools are read-only queries or outbound HTTP fetches
+- No shell commands, eval, or dynamic imports
+
+## [1.0.0] - 2026-01-15
+
+### Changed
+- **BREAKING**: Separated UL Community Registry from personal daemon into two independent MCP servers
+  - Registry: `registry.daemon.saltedkeys.io` (14 tools)
+  - Telos (personal): `daemon.saltedkeys.io/mcp` (16 tools)
+- Reorganized as monorepo with `packages/registry` and `packages/telos`
+- Each package has its own wrangler.jsonc, dependencies, and deployment
+
+### Migration
+If you were using `mcp.daemon.saltedkeys.io`, update your MCP config:
+```json
+{
+  "ul-daemon-registry": {
+    "url": "https://registry.daemon.saltedkeys.io/sse",
+    "transport": "sse"
+  },
+  "swift-daemon": {
+    "url": "https://daemon.saltedkeys.io/mcp/sse",
+    "transport": "sse"
+  }
+}
+```
+
+## [0.4.0-alpha] - 2026-01-11
+
 ### Added
 - AI discoverability tools (8 new meta tools for first-contact experience):
   - `get_orientation` - START HERE intro for UL Community Daemon Registry
