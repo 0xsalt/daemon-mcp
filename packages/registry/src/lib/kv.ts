@@ -1,6 +1,26 @@
 import type { DaemonEntry, Registry, ActivityEvent } from "../types";
 import seedRegistry from "../../seed-registry.json";
 
+/**
+ * Derive a namespace-based ID from a daemon URL.
+ * Used as fallback for entries missing an ID (pre-v1.1.0 announced daemons).
+ */
+function deriveIdFromUrl(url: string, owner?: string): string {
+	try {
+		const parsed = new URL(url);
+		const host = parsed.hostname;
+		const parts = host.split('.').reverse();
+		const pathPart = parsed.pathname.replace(/^\/|\/$/g, '').split('/')[0];
+		let identifier = pathPart || 'daemon';
+		if (owner) {
+			identifier = owner.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 20) || identifier;
+		}
+		return [...parts, identifier].join('.');
+	} catch {
+		return `unknown.${url.replace(/[^a-z0-9]/gi, '').substring(0, 32)}`;
+	}
+}
+
 // KV keys
 const KV_ANNOUNCED_KEY = "announced_daemons";
 const KV_ACTIVITY_KEY = "activity_feed";
@@ -22,6 +42,13 @@ export async function loadRegistry(kv?: KVNamespace): Promise<Registry> {
 			}
 		} catch (e) {
 			console.error("Failed to load announced daemons from KV:", e);
+		}
+	}
+
+	// Ensure all entries have IDs (backfill for pre-v1.1.0 announced daemons)
+	for (const entry of entries) {
+		if (!entry.id) {
+			entry.id = deriveIdFromUrl(entry.url, entry.owner);
 		}
 	}
 

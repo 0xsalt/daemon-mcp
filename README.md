@@ -23,12 +23,10 @@ Each daemon has a **namespace-based ID** that provides stable, portable identity
 |----|-----|-------|
 | `com.danielmiessler.daniel` | daemon.danielmiessler.com | Daniel Miessler |
 | `io.saltedkeys.swift` | daemon.saltedkeys.io | Swift |
-| `io.nocooldowns.scott` | daemon.nocooldowns.io | Scott Behrens |
 
 **Why this format?**
 - **Stable** - ID doesn't change even if URL changes
 - **Self-sovereign** - You control your namespace via your domain
-- **ARC-compatible** - Future integration with [ARC identity protocol](https://github.com/0xsalt/arc)
 - **Human-readable** - Meaningful names, not hashes
 
 ## Architecture
@@ -216,18 +214,6 @@ bun run telos:deploy
 3. Update `packages/telos/wrangler.jsonc` with your custom domain
 4. Deploy: `bun run telos:deploy`
 
-## Known Community Daemons
-
-| ID | Owner | URL | Status |
-|----|-------|-----|--------|
-| `com.danielmiessler.daniel` | Daniel Miessler | [daemon.danielmiessler.com](https://daemon.danielmiessler.com) | mcp |
-| `io.saltedkeys.swift` | Swift | [daemon.saltedkeys.io](https://daemon.saltedkeys.io) | mcp |
-| `io.nocooldowns.scott` | Scott Behrens | [daemon.nocooldowns.io](https://daemon.nocooldowns.io) | mcp |
-| `com.wallykroeker.wally` | Wally Kroeker | [wallykroeker.com/daemon](https://wallykroeker.com/daemon) | web |
-| `info.voidwire.daemon` | Voidwire | [daemon.voidwire.info](https://daemon.voidwire.info) | web |
-
-Want to add yours? Use `daemon_registry_announce` or submit a PR to `packages/registry/seed-registry.json`.
-
 ## Roadmap
 
 ### Completed (v1.1.0)
@@ -238,7 +224,7 @@ Want to add yours? Use `daemon_registry_announce` or submit a PR to `packages/re
 - [x] Health monitoring with mcp/web/offline status
 - [x] Rate limiting and jitter-based health checks
 - [x] Cloudflare KV persistence
-- [x] **Namespace-based daemon IDs** (ARC-compatible)
+- [x] **Namespace-based daemon IDs**
 - [x] **Security audit documentation**
 
 ### Future
