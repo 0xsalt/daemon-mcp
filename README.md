@@ -35,7 +35,7 @@ This project is organized as a monorepo with two independent MCP servers:
 
 ```
 ┌─────────────────────────────────┐     ┌─────────────────────────────────┐
-│  registry.daemon.saltedkeys.io  │     │  daemon.saltedkeys.io/mcp       │
+│  registry.daemon.saltedkeys.io  │     │  mcp.daemon.saltedkeys.io       │
 │  (UL Community Registry)        │     │  (Telos - Swift's Daemon)       │
 ├─────────────────────────────────┤     ├─────────────────────────────────┤
 │  14 tools:                      │     │  16 tools:                      │
@@ -67,7 +67,7 @@ Add to `~/.claude/mcp_servers.json`:
     "transport": "sse"
   },
   "swift-daemon": {
-    "url": "https://daemon.saltedkeys.io/mcp/sse",
+    "url": "https://mcp.daemon.saltedkeys.io/sse",
     "transport": "sse"
   }
 }
@@ -87,7 +87,7 @@ curl -X POST https://registry.daemon.saltedkeys.io/ \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"daemon_registry_search","arguments":{"tag":"security"}},"id":1}'
 
 # Query Swift's personal daemon
-curl -X POST https://daemon.saltedkeys.io/mcp \
+curl -X POST https://mcp.daemon.saltedkeys.io \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_telos"},"id":1}'
 ```
@@ -113,7 +113,7 @@ curl -X POST https://daemon.saltedkeys.io/mcp \
 | `daemon_registry_activity` | Activity feed (announcements, status changes) |
 | `daemon_registry_capabilities` | Discover tools offered by a daemon |
 
-### Personal Tools (daemon.saltedkeys.io/mcp)
+### Personal Tools (mcp.daemon.saltedkeys.io)
 
 | Tool | Description |
 |------|-------------|
@@ -219,7 +219,7 @@ bun run telos:deploy
 ### Completed (v1.1.0)
 - [x] Separated registry from personal daemon
 - [x] Registry at `registry.daemon.saltedkeys.io`
-- [x] Telos at `daemon.saltedkeys.io/mcp`
+- [x] Telos at `mcp.daemon.saltedkeys.io`
 - [x] JSON-RPC + SSE transports
 - [x] Health monitoring with mcp/web/offline status
 - [x] Rate limiting and jitter-based health checks
@@ -228,6 +228,7 @@ bun run telos:deploy
 - [x] **Security audit documentation**
 
 ### Future
+- [ ] Include GitHub repo URL in MCP server responses (for self-hosting)
 - [ ] Gossip protocol - peer discovery via `get_known_daemons`
 - [ ] Content hashing for change detection
 - [ ] Web of trust (vouching system)

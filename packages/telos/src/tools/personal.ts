@@ -1,4 +1,4 @@
-const MCP_URL = "https://daemon.saltedkeys.io/mcp";
+const MCP_URL = "https://mcp.daemon.saltedkeys.io";
 const OWNER = "Swift";
 
 // Tool definitions for personal daemon

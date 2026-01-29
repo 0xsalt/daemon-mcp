@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **BREAKING**: Separated UL Community Registry from personal daemon into two independent MCP servers
   - Registry: `registry.daemon.saltedkeys.io` (14 tools)
-  - Telos (personal): `daemon.saltedkeys.io/mcp` (16 tools)
+  - Telos (personal): `mcp.daemon.saltedkeys.io` (16 tools)
 - Reorganized as monorepo with `packages/registry` and `packages/telos`
 - Each package has its own wrangler.jsonc, dependencies, and deployment
 
@@ -46,7 +46,7 @@ If you were using `mcp.daemon.saltedkeys.io`, update your MCP config:
     "transport": "sse"
   },
   "swift-daemon": {
-    "url": "https://daemon.saltedkeys.io/mcp/sse",
+    "url": "https://mcp.daemon.saltedkeys.io/sse",
     "transport": "sse"
   }
 }
