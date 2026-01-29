@@ -163,7 +163,7 @@ function jsonRpcError(code: number, message: string, id: any): Response {
 // Durable Object for SSE transport
 export class RegistryMCP extends McpAgent {
 	server = new McpServer({
-		name: "UL Daemon Registry",
+		name: "Daemon Registry",
 		version: "1.0.0",
 	});
 
@@ -171,7 +171,7 @@ export class RegistryMCP extends McpAgent {
 		const getKV = () => (this.env as Env)?.REGISTRY_DATA;
 
 		// Meta tools
-		this.server.tool("get_orientation", "START HERE - UL Community Daemon Registry", {}, async () => {
+		this.server.tool("get_orientation", "START HERE - Community Daemon Registry", {}, async () => {
 			return { content: [{ type: "text", text: getOrientation() }] };
 		});
 
@@ -329,12 +329,12 @@ export default {
 		// Health check
 		if (url.pathname === "/health") {
 			return new Response(
-				JSON.stringify({ status: "ok", service: "ul-daemon-registry" }),
+				JSON.stringify({ status: "ok", service: "daemon-registry" }),
 				{ headers: { "Content-Type": "application/json" } }
 			);
 		}
 
-		return new Response("UL Daemon Registry. POST to / for JSON-RPC or connect to /sse for SSE transport.", { status: 200 });
+		return new Response("Daemon Registry. POST to / for JSON-RPC or connect to /sse for SSE transport.", { status: 200 });
 	},
 
 	// Cron trigger for health checks

@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-01-15
 
 ### Changed
-- **BREAKING**: Separated UL Community Registry from personal daemon into two independent MCP servers
+- **BREAKING**: Separated Community Registry from personal daemon into two independent MCP servers
   - Registry: `registry.daemon.saltedkeys.io` (14 tools)
   - Telos (personal): `mcp.daemon.saltedkeys.io` (16 tools)
 - Reorganized as monorepo with `packages/registry` and `packages/telos`
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 If you were using `mcp.daemon.saltedkeys.io`, update your MCP config:
 ```json
 {
-  "ul-daemon-registry": {
+  "daemon-registry": {
     "url": "https://registry.daemon.saltedkeys.io/sse",
     "transport": "sse"
   },
@@ -56,7 +56,7 @@ If you were using `mcp.daemon.saltedkeys.io`, update your MCP config:
 
 ### Added
 - AI discoverability tools (8 new meta tools for first-contact experience):
-  - `get_orientation` - START HERE intro for UL Community Daemon Registry
+  - `get_orientation` - START HERE intro for Community Daemon Registry
   - `get_mcp_config` - Integration snippet for Claude Code/Desktop
   - `get_protocol_info` - Transport details and example requests
   - `ai_briefing` - AI-specific usage guidance
@@ -78,7 +78,7 @@ If you were using `mcp.daemon.saltedkeys.io`, update your MCP config:
   - `offline` = can't reach it
 - Added `healthy` boolean to signal intent (prevents clients from showing warnings for web-only sites)
 - Cron trigger now runs every minute (jitter logic determines which daemons to check)
-- Reframed `get_orientation` to emphasize UL Community Daemon Registry first, personal daemon second
+- Reframed `get_orientation` to emphasize Community Daemon Registry first, personal daemon second
 
 ## [0.3.0-alpha] - 2026-01-11
 

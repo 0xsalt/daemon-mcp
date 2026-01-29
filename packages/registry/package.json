@@ -1,7 +1,7 @@
 {
 	"name": "@daemon-mcp/registry",
 	"version": "1.0.0",
-	"description": "UL Community Daemon Registry - MCP server for daemon discovery",
+	"description": "Community Daemon Registry - MCP server for daemon discovery",
 	"private": true,
 	"main": "src/index.ts",
 	"scripts": {

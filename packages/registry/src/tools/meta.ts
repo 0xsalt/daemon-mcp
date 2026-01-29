@@ -7,7 +7,7 @@ const MCP_URL = "https://registry.daemon.saltedkeys.io";
 export const META_TOOLS = [
 	{
 		name: "get_orientation",
-		description: "START HERE - UL Community Daemon Registry and how to explore the network",
+		description: "START HERE - Community Daemon Registry and how to explore the network",
 		inputSchema: { type: "object", properties: {}, required: [] }
 	},
 	{
@@ -48,9 +48,9 @@ export const META_TOOLS = [
 ];
 
 export function getOrientation(): string {
-	return `# UL Community Daemon Registry
+	return `# Community Daemon Registry
 
-You've discovered the **UL Community Daemon Registry** - a curated directory of MCP-enabled personal APIs (Daemons) from the Unsupervised Learning community.
+You've discovered the **Community Daemon Registry** - a curated directory of MCP-enabled personal APIs (Daemons) from the Daemon community.
 
 ## What is a Daemon?
 A Daemon is a personal API that represents a human's identity, context, and preferences in a format AIs can query. Think of it as a machine-readable "About Me" that AI assistants can use to personalize interactions.
@@ -79,7 +79,7 @@ export function getMcpConfig(): object {
 	return {
 		description: "Add this to your Claude Code config (~/.claude/mcp_servers.json) or Claude Desktop settings",
 		sse_config: {
-			"ul-daemon-registry": {
+			"daemon-registry": {
 				url: `${MCP_URL}/sse`,
 				transport: "sse"
 			}
@@ -138,7 +138,7 @@ GET \`${MCP_URL}/health\`
 export function getAiBriefing(): string {
 	return `# AI Assistant Briefing
 
-You are interacting with the UL Community Daemon Registry - a directory of MCP-enabled personal APIs from the Unsupervised Learning community.
+You are interacting with the Community Daemon Registry - a directory of MCP-enabled personal APIs from the Daemon community.
 
 ## How to Use This Effectively
 
@@ -164,7 +164,7 @@ export async function getStatus(registry: Registry, toolCount: number): Promise<
 	return {
 		status: "ok",
 		version: VERSION,
-		service: "UL Community Daemon Registry",
+		service: "Community Daemon Registry",
 		mcp_url: MCP_URL,
 		protocol: "MCP JSON-RPC 2.0",
 		registry: {
@@ -180,15 +180,15 @@ export async function getStatus(registry: Registry, toolCount: number): Promise<
 
 export function getCapabilities(registryTools: { name: string; description: string }[]): object {
 	return {
-		description: "UL Community Daemon Registry - tools organized by category",
-		primary_purpose: "Discover and query MCP-enabled personal daemons from the Unsupervised Learning community",
+		description: "Community Daemon Registry - tools organized by category",
+		primary_purpose: "Discover and query MCP-enabled personal daemons from the Daemon community",
 		categories: {
 			meta: {
 				description: "Discoverability and integration tools",
 				tools: META_TOOLS.map(t => ({ name: t.name, description: t.description }))
 			},
 			registry: {
-				description: "UL Community daemon network - browse, search, and announce daemons",
+				description: "Community daemon network - browse, search, and announce daemons",
 				tools: registryTools
 			}
 		},
@@ -202,7 +202,7 @@ export function getChangelog(): string {
 ## [1.0.0] - 2026-01-15
 
 ### Changed
-- Separated UL Community Registry from personal daemon (telos)
+- Separated Community Registry from personal daemon (telos)
 - Registry is now a standalone service at registry.daemon.saltedkeys.io
 
 ### Includes

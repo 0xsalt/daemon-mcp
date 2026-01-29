@@ -68,7 +68,7 @@ A Daemon is a personal API that represents a human's identity, context, and pref
 ## Integration
 Use \`get_mcp_config\` to add this daemon to your Claude Code setup.
 
-## UL Community
+## Community Registry
 For the community daemon registry, see: https://registry.daemon.saltedkeys.io`;
 }
 
@@ -92,6 +92,6 @@ export function getMcpConfig(): object {
 				id: 1
 			}
 		},
-		note: "For the UL Community Daemon Registry, use: https://registry.daemon.saltedkeys.io/sse"
+		note: "For the Community Daemon Registry, use: https://registry.daemon.saltedkeys.io/sse"
 	};
 }

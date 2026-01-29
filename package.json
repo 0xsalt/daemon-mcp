@@ -1,7 +1,7 @@
 {
 	"name": "daemon-mcp",
 	"version": "1.0.0",
-	"description": "Daemon MCP - UL Community Registry and Telos personal daemon",
+	"description": "Daemon MCP - Community Daemon Registry and Telos personal daemon",
 	"private": true,
 	"workspaces": ["packages/*"],
 	"scripts": {

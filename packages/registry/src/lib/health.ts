@@ -26,7 +26,7 @@ export async function verifyDaemon(daemonUrl: string): Promise<{ verified: boole
 
 	try {
 		const response = await fetch(daemonMdUrl, {
-			headers: { "User-Agent": "ULDaemonRegistry/1.0" },
+			headers: { "User-Agent": "DaemonRegistry/1.0" },
 			signal: AbortSignal.timeout(10000),
 		});
 
@@ -57,7 +57,7 @@ export async function checkMcpCapability(daemonUrl: string): Promise<boolean> {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"User-Agent": "ULDaemonRegistry/1.0"
+				"User-Agent": "DaemonRegistry/1.0"
 			},
 			body: JSON.stringify({
 				jsonrpc: "2.0",
@@ -81,7 +81,7 @@ export async function checkWebReachable(daemonUrl: string): Promise<boolean> {
 	try {
 		const response = await fetch(daemonUrl, {
 			method: "GET",
-			headers: { "User-Agent": "ULDaemonRegistry/1.0" },
+			headers: { "User-Agent": "DaemonRegistry/1.0" },
 			signal: AbortSignal.timeout(10000),
 		});
 		return response.ok;

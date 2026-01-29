@@ -446,7 +446,7 @@ const REGISTRY_TOOLS = [
 const META_TOOLS = [
 	{
 		name: "get_orientation",
-		description: "START HERE - UL Community Daemon Registry and how to explore the network",
+		description: "START HERE - Community Daemon Registry and how to explore the network",
 		inputSchema: { type: "object", properties: {}, required: [] }
 	},
 	{
@@ -748,9 +748,9 @@ async function discoverCapabilities(url: string, mcpUrl?: string): Promise<Daemo
 
 // Meta tool functions
 function getOrientation(): string {
-	return `# UL Community Daemon Registry
+	return `# Community Daemon Registry
 
-You've discovered the **UL Community Daemon Registry** - a curated directory of MCP-enabled personal APIs (Daemons) from the Unsupervised Learning community.
+You've discovered the **Community Daemon Registry** - a curated directory of MCP-enabled personal APIs (Daemons) from the Daemon community.
 
 ## What is a Daemon?
 A Daemon is a personal API that represents a human's identity, context, and preferences in a format AIs can query. Think of it as a machine-readable "About Me" that AI assistants can use to personalize interactions.
@@ -892,15 +892,15 @@ async function getStatus(kv?: KVNamespace): Promise<object> {
 
 function getCapabilities(): object {
 	return {
-		description: "UL Community Daemon Registry - tools organized by category",
-		primary_purpose: "Discover and query MCP-enabled personal daemons from the Unsupervised Learning community",
+		description: "Community Daemon Registry - tools organized by category",
+		primary_purpose: "Discover and query MCP-enabled personal daemons from the Daemon community",
 		categories: {
 			meta: {
 				description: "Discoverability and integration tools",
 				tools: META_TOOLS.map(t => ({ name: t.name, description: t.description }))
 			},
 			registry: {
-				description: "UL Community daemon network - browse, search, and announce daemons",
+				description: "Community daemon network - browse, search, and announce daemons",
 				tools: REGISTRY_TOOLS.map(t => ({ name: t.name, description: t.description }))
 			},
 			personal: {

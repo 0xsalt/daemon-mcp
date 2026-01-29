@@ -312,7 +312,7 @@ export async function discoverCapabilities(url: string, mcpUrl?: string): Promis
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"User-Agent": "ULDaemonRegistry/1.0",
+				"User-Agent": "DaemonRegistry/1.0",
 			},
 			body: JSON.stringify({
 				jsonrpc: "2.0",

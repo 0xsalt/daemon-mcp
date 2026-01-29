@@ -1,6 +1,6 @@
 # daemon-mcp
 
-**UL Community Daemon Registry** - An MCP server for the [Daemon](https://github.com/danielmiessler/Daemon) ecosystem.
+**Community Daemon Registry** - An MCP server for the [Daemon](https://github.com/danielmiessler/Daemon) ecosystem.
 
 Query personal daemons, discover the community network, and announce your own daemon to the registry.
 
@@ -36,7 +36,7 @@ This project is organized as a monorepo with two independent MCP servers:
 ```
 ┌─────────────────────────────────┐     ┌─────────────────────────────────┐
 │  registry.daemon.saltedkeys.io  │     │  mcp.daemon.saltedkeys.io       │
-│  (UL Community Registry)        │     │  (Telos - Swift's Daemon)       │
+│  (Community Registry)           │     │  (Telos - Swift's Daemon)       │
 ├─────────────────────────────────┤     ├─────────────────────────────────┤
 │  14 tools:                      │     │  16 tools:                      │
 │  - 8 meta (orientation, etc.)   │     │  - 14 personal (get_about, etc.)│
@@ -62,7 +62,7 @@ Add to `~/.claude/mcp_servers.json`:
 
 ```json
 {
-  "ul-daemon-registry": {
+  "daemon-registry": {
     "url": "https://registry.daemon.saltedkeys.io/sse",
     "transport": "sse"
   },
@@ -98,7 +98,7 @@ curl -X POST https://mcp.daemon.saltedkeys.io \
 
 | Tool | Description |
 |------|-------------|
-| `get_orientation` | First-contact intro to the UL Community Registry |
+| `get_orientation` | First-contact intro to the Community Daemon Registry |
 | `get_mcp_config` | Integration snippet for Claude Code/Desktop |
 | `get_protocol_info` | Transport details and example requests |
 | `ai_briefing` | AI-specific usage guidance |
@@ -149,7 +149,7 @@ Each daemon in the registry has a `status` and `healthy` flag:
 ```
 daemon-mcp/
 ├── packages/
-│   ├── registry/              # UL Community Registry
+│   ├── registry/              # Community Daemon Registry
 │   │   ├── src/
 │   │   │   ├── index.ts       # Worker entry point
 │   │   │   ├── types.ts       # TypeScript types
@@ -229,6 +229,7 @@ bun run telos:deploy
 
 ### Future
 - [ ] Include GitHub repo URL in MCP server responses (for self-hosting)
+- [ ] Investigate orphaned root-level `src/index.ts` and `wrangler.jsonc` (pre-monorepo)
 - [ ] Gossip protocol - peer discovery via `get_known_daemons`
 - [ ] Content hashing for change detection
 - [ ] Web of trust (vouching system)
